@@ -105,7 +105,7 @@ with access, home, projects, and settings in Phase 2.
 
 ### Phase 2 — Access, home, projects, and settings
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Apply Troy's visual language to PBJ's private access screen.
 - Restyle Home using real PBJ projects, resume behavior, and job status.
@@ -113,6 +113,28 @@ with access, home, projects, and settings in Phase 2.
 
 **Gate:** access-code sessions, project privacy, resume authority, and destructive
 project actions remain correct.
+
+Implemented:
+
+- replaced the legacy wordmark-led access layout with Troy's sandwich mark,
+  restrained welcome hierarchy, bottom-anchored real access-code form, and
+  preserved seven-day server-validated authorization;
+- rebuilt Home around Troy's deliberately minimal mobile composition while
+  retaining PBJ's real projects, truthful processing states, canonical New
+  Project route, and device-local resume links;
+- adapted Projects into Troy's two-column mobile card system using real PBJ
+  project metadata and routes, while retaining deliberate confirmation for
+  permanent local deletion;
+- restyled More and owner-only Connections without importing Troy's account,
+  Clerk, billing, mock project, or sign-out behavior;
+- retained PBJ's canonical navigation and owner boundary, with black primary
+  actions and purple used for active, ready, and operator-accent states.
+
+Verification: the full PBJ suite passes with five Phase 2 facade-boundary tests.
+The Access surface also passes a 390×844 browser check with no horizontal
+overflow, a loaded sandwich asset, a 56-pixel action, and no console errors.
+Route-contract behavior remains unchanged and no Troy Studio or mock state was
+introduced.
 
 ### Phase 3 — Canonical project creation
 
