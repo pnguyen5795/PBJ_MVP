@@ -44,6 +44,9 @@ centered while the padded timeline scrolls underneath it. OpenReel's existing cl
 and trim interactions accept pointer input with larger narrow-screen trim targets.
 PBJ sessions also bypass OpenReel's inherited desktop-only overlay and use an
 iPhone-safe dynamic viewport with unlocked portrait and landscape orientation.
+Representative 390×844 portrait and 844×390 landscape browser checks now keep
+the mobile PBJ/OpenReel shell active; short phone-landscape viewports no longer
+fall into desktop navigation or desktop toolbar presentation.
 Pending OpenReel changes flush immediately when Safari hides or backgrounds the
 page, while PBJ's latest immutable snapshot remains the recovery source.
 Home Screen relaunch resumes only the last successfully loaded PBJ project and
@@ -52,8 +55,8 @@ PBJ's mobile-safe per-source proxies load sequentially, report their actual
 hydrated sizes, and stop loading if the page closes or is replaced.
 The app shell enforces Safari's dynamic viewport so the timeline and tool tray
 remain above browser chrome.
-Physical iPhone acceptance testing is still required before the mobile editor
-is considered verified.
+Physical iPhone touch, memory-pressure, interruption, and Home Screen acceptance
+testing is still required before the mobile editor receives final user approval.
 
 The local browser walkthrough is verified end to end: a PBJ timeline opens in
 OpenReel, an OpenReel project change creates a PBJ snapshot, and reopening the

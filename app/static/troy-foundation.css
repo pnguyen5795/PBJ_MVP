@@ -490,7 +490,7 @@ textarea.pbj-input {
   animation: pbj-spin .7s linear infinite;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 900px) and (max-height: 500px) {
   main {
     width: 100%;
     max-width: 480px;

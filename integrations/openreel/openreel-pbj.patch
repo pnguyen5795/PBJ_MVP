@@ -206,7 +206,7 @@ index af72428..65c65ba 100644
      checkMobile();
      window.addEventListener("resize", checkMobile);
 diff --git a/apps/web/src/components/editor/EditorInterface.tsx b/apps/web/src/components/editor/EditorInterface.tsx
-index 15695cc..d394b91 100644
+index 15695cc..83ab07d 100644
 --- a/apps/web/src/components/editor/EditorInterface.tsx
 +++ b/apps/web/src/components/editor/EditorInterface.tsx
 @@ -1,5 +1,17 @@
@@ -245,7 +245,7 @@ index 15695cc..d394b91 100644
  
  const clamp = (value: number, min: number, max: number): number => {
    return Math.min(Math.max(value, min), max);
-@@ -224,9 +239,23 @@ export const EditorInterface: React.FC = () => {
+@@ -224,9 +239,25 @@ export const EditorInterface: React.FC = () => {
      panels,
      setPanelVisible,
      timelineMaximized,
@@ -256,12 +256,14 @@ index 15695cc..d394b91 100644
 +  const playheadPosition = useTimelineStore((state) => state.playheadPosition);
    const tracks = project.timeline.tracks;
 +  const [mobileLayout, setMobileLayout] = useState(() =>
-+    typeof window !== "undefined" && isMobileEditorViewport(window.innerWidth),
++    typeof window !== "undefined" && isMobileEditorViewport(window.innerWidth, window.innerHeight),
 +  );
 +  const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
 +
 +  useEffect(() => {
-+    const query = window.matchMedia("(max-width: 767px)");
++    const query = window.matchMedia(
++      "(max-width: 767px), (max-width: 900px) and (max-height: 500px)",
++    );
 +    const update = () => setMobileLayout(query.matches);
 +    update();
 +    query.addEventListener("change", update);
@@ -270,7 +272,7 @@ index 15695cc..d394b91 100644
  
    const [selectedKeyframeIds, setSelectedKeyframeIds] = React.useState<string[]>([]);
    const [copiedKeyframes, setCopiedKeyframes] = React.useState<
-@@ -244,6 +273,12 @@ export const EditorInterface: React.FC = () => {
+@@ -244,6 +275,12 @@ export const EditorInterface: React.FC = () => {
      return null;
    }, [getSelectedClipIds, tracks]);
  
@@ -283,7 +285,7 @@ index 15695cc..d394b91 100644
    const handleUpdateKeyframe = React.useCallback(
      (
        keyframeId: string,
-@@ -441,6 +476,151 @@ export const EditorInterface: React.FC = () => {
+@@ -441,6 +478,151 @@ export const EditorInterface: React.FC = () => {
      );
    }
  
@@ -435,7 +437,7 @@ index 15695cc..d394b91 100644
    // ── Render ───────────────────────────────────────────────────────
    // Grid template uses inline CSS for the resizable columns. The CSS
    // variables `--media-w`, `--inspector-w`, `--tl-height` are kept in
-@@ -461,7 +641,6 @@ export const EditorInterface: React.FC = () => {
+@@ -461,7 +643,6 @@ export const EditorInterface: React.FC = () => {
          gridTemplateAreas:
            "'media mh stage ih inspector' 'th th th th th' 'timeline timeline timeline timeline timeline'",
        };
@@ -443,7 +445,7 @@ index 15695cc..d394b91 100644
    return (
      <div
        ref={rootRef}
-@@ -469,10 +648,10 @@ export const EditorInterface: React.FC = () => {
+@@ -469,10 +650,10 @@ export const EditorInterface: React.FC = () => {
      >
        <Toolbar />
  
@@ -740,7 +742,7 @@ index d338a73..072da59 100644
        </div>
      </div>
 diff --git a/apps/web/src/components/editor/Toolbar.tsx b/apps/web/src/components/editor/Toolbar.tsx
-index 572eada..43b87cb 100644
+index 572eada..3b8b40c 100644
 --- a/apps/web/src/components/editor/Toolbar.tsx
 +++ b/apps/web/src/components/editor/Toolbar.tsx
 @@ -1,4 +1,5 @@
@@ -892,7 +894,7 @@ index 572eada..43b87cb 100644
          activeMode="video"
          onSelectMode={handleWorkspaceModeSelect}
 -        className="shrink-0"
-+        className="hidden md:flex shrink-0"
++        className="pbj-toolbar-desktop hidden md:flex shrink-0"
        />
  
 +      {pbjProjection && (
@@ -904,7 +906,7 @@ index 572eada..43b87cb 100644
 +
        {/* ─── Center: project name ─────────────────────────────── */}
 -      <div className="flex flex-1 min-w-0 items-center justify-center gap-1.5">
-+      <div className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-1.5">
++      <div className="pbj-toolbar-desktop hidden md:flex flex-1 min-w-0 items-center justify-center gap-1.5">
          <ToolcraftTextInputControl
            label="Project name"
            isLabelHidden
@@ -912,7 +914,7 @@ index 572eada..43b87cb 100644
          />
          <ProjectSwitcher />
        </div>
-+      <div className="min-w-0 flex-1 truncate px-1 text-sm font-medium text-fg-2 md:hidden">
++      <div className="pbj-toolbar-mobile min-w-0 flex-1 truncate px-1 text-sm font-medium text-fg-2 md:hidden">
 +        {project.name}
 +      </div>
  
@@ -1331,10 +1333,10 @@ index ab78274..66ea539 100644
        }}
      >
 diff --git a/apps/web/src/index.css b/apps/web/src/index.css
-index 8683082..8accee9 100644
+index 8683082..832ffab 100644
 --- a/apps/web/src/index.css
 +++ b/apps/web/src/index.css
-@@ -107,7 +107,60 @@
+@@ -107,7 +107,66 @@
      --accent-fg: oklch(0.99 0 0);
      --accent-glow: oklch(0.7 0.15 162 / 0.45);
    }
@@ -1380,7 +1382,7 @@ index 8683082..8accee9 100644
 +  html[data-pbj-session="true"] .pbj-confirm-primary:active {
 +    transform: scale(0.97);
 +  }
-+  @media (max-width: 767px) {
++  @media (max-width: 767px), (max-width: 900px) and (max-height: 500px) {
 +    html[data-pbj-session="true"] .pbj-editor-toolbar {
 +      height: calc(60px + env(safe-area-inset-top));
 +      padding-top: env(safe-area-inset-top);
@@ -1392,16 +1394,22 @@ index 8683082..8accee9 100644
 +      padding-right: max(0.375rem, env(safe-area-inset-right));
 +      padding-left: max(0.375rem, env(safe-area-inset-left));
 +    }
++    html[data-pbj-session="true"] .pbj-toolbar-desktop {
++      display: none;
++    }
++    html[data-pbj-session="true"] .pbj-toolbar-mobile {
++      display: block;
++    }
 +  }
    [data-density="compact"] {
      --d-text: 12px;
      --d-text-sm: 10.5px;
 diff --git a/apps/web/src/pbj/pbj-editor-compat.test.ts b/apps/web/src/pbj/pbj-editor-compat.test.ts
 new file mode 100644
-index 0000000..a598288
+index 0000000..b185a52
 --- /dev/null
 +++ b/apps/web/src/pbj/pbj-editor-compat.test.ts
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,32 @@
 +import { describe, expect, it } from "vitest";
 +import {
 +  isMobileEditorViewport,
@@ -1415,6 +1423,9 @@ index 0000000..a598288
 +    expect(isMobileEditorViewport(390)).toBe(true);
 +    expect(isMobileEditorViewport(767)).toBe(true);
 +    expect(isMobileEditorViewport(768)).toBe(false);
++    expect(isMobileEditorViewport(844, 390)).toBe(true);
++    expect(isMobileEditorViewport(901, 390)).toBe(false);
++    expect(isMobileEditorViewport(844, 501)).toBe(false);
 +    expect(PBJ_MOBILE_WORKSPACES.map((item) => item[0])).toEqual([
 +      "stage", "timeline", "media", "inspector",
 +    ]);
@@ -1433,11 +1444,13 @@ index 0000000..a598288
 +});
 diff --git a/apps/web/src/pbj/pbj-editor-compat.ts b/apps/web/src/pbj/pbj-editor-compat.ts
 new file mode 100644
-index 0000000..ebccf62
+index 0000000..0b5d16f
 --- /dev/null
 +++ b/apps/web/src/pbj/pbj-editor-compat.ts
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,32 @@
 +export const MOBILE_EDITOR_MAX_WIDTH = 767;
++export const MOBILE_EDITOR_LANDSCAPE_MAX_WIDTH = 900;
++export const MOBILE_EDITOR_LANDSCAPE_MAX_HEIGHT = 500;
 +
 +export const PBJ_MOBILE_WORKSPACES = [
 +  ["stage", "Preview"],
@@ -1446,8 +1459,11 @@ index 0000000..ebccf62
 +  ["inspector", "Adjust"],
 +] as const;
 +
-+export function isMobileEditorViewport(width: number): boolean {
-+  return width <= MOBILE_EDITOR_MAX_WIDTH;
++export function isMobileEditorViewport(width: number, height = Number.POSITIVE_INFINITY): boolean {
++  return width <= MOBILE_EDITOR_MAX_WIDTH || (
++    width <= MOBILE_EDITOR_LANDSCAPE_MAX_WIDTH &&
++    height <= MOBILE_EDITOR_LANDSCAPE_MAX_HEIGHT
++  );
 +}
 +
 +export function shouldShowStandaloneMobileBlocker(

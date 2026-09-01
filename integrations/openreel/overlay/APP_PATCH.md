@@ -87,6 +87,10 @@ Apply these changes to pinned OpenReel `apps/web/src/App.tsx`:
     Align the compact toolbar, editor body, and bottom tool tray with iPhone safe
     areas and set the browser theme color for the duration of the PBJ session.
     Standalone OpenReel sessions retain OpenReel's native tokens and controls.
+26. Treat short phone-landscape viewports through 900×500 as the same compact
+    PBJ editing surface as portrait phones. Keep desktop toolbar groups hidden,
+    preserve the compact project title, and retain four-sided safe-area padding
+    after rotation without changing standalone OpenReel's blocker policy.
 
 Do not add callbacks to individual editor tools. OpenReel owns move, trim, split,
 crop, playback, undo/redo, and all other editing behavior. PBJ receives complete

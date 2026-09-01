@@ -244,7 +244,7 @@ applies cleanly to the pinned OpenReel revision.
 
 ### Phase 6 — iPhone and system QA
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Test representative iPhone viewport sizes, safe areas, keyboard behavior,
   rotation resilience, touch targets, sheets, reduced motion, and accessibility.
@@ -253,6 +253,33 @@ applies cleanly to the pinned OpenReel revision.
 
 **Gate:** no critical mobile, accessibility, privacy, route, or integration defect
 remains.
+
+Implemented:
+
+- tested the authenticated PBJ shell at representative iPhone portrait and
+  landscape viewports and verified 44–56 pixel primary touch targets, semantic
+  navigation, and no portrait horizontal overflow;
+- found and fixed a rotation defect where 844×390 crossed into the desktop
+  sidebar and desktop OpenReel toolbar; short phone-landscape viewports through
+  900×500 now retain the mobile PBJ and OpenReel presentations;
+- removed PBJ's portrait-only PWA lock while preserving responsive detection
+  without user-agent sniffing, and kept mobile uploads sequential after rotation;
+- versioned the changed mobile styles in both HTML shells and the service-worker
+  cache so installed PWAs receive the corrected layout instead of a stale asset;
+- retained reduced-motion behavior, four-sided safe areas, dynamic viewport
+  height, abortable proxy hydration, lifecycle snapshot flush, authority-checked
+  Home Screen resume, and the existing accessibility labels and live regions.
+
+Verification: live browser checks pass at 390×844 and 844×390, including a
+visual confirmation that rotation keeps the compact header and bottom
+navigation. PBJ's complete suite passes 138 tests. OpenReel's complete web suite
+passes 863 tests with 7 skipped, and its TypeScript/Vite production build
+succeeds. The reproducible patch applies to the pinned OpenReel revision.
+
+Known acceptance boundary: automated and representative browser QA cannot
+reproduce a specific physical iPhone's touch hardware, Safari memory pressure,
+interruption timing, or Add to Home Screen prompts. Those checks remain the
+user's physical-device walkthrough in Phase 7 and are not represented as passed.
 
 ### Phase 7 — Acceptance and merge readiness
 
