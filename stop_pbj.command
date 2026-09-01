@@ -5,16 +5,34 @@ set -u
 PBJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PBJ_PORTS=(8000 8001 5173)
 stopped=0
+typeset -a pbj_terminal_ttys
+
 close_launcher_terminal() {
   if [[ "${TERM_PROGRAM:-}" != "Apple_Terminal" ]]; then
     return
   fi
 
-  # A double-clicked .command file opens in Terminal's front window. Give the
-  # shell time to finish, then close that launcher window.
+  # Close the Terminal window that launched PBJ and the separate window that
+  # launched this stop command. The process TTYs keep unrelated windows safe.
   (
     sleep 0.5
-    osascript -e 'tell application "Terminal" to close front window' >/dev/null 2>&1
+    osascript \
+      -e 'on run targetTTYs' \
+      -e 'tell application "Terminal"' \
+      -e 'set stopWindow to front window' \
+      -e 'repeat with targetTTY in targetTTYs' \
+      -e 'repeat with terminalWindow in windows' \
+      -e 'try' \
+      -e 'if tty of selected tab of terminalWindow is targetTTY then close terminalWindow' \
+      -e 'end try' \
+      -e 'end repeat' \
+      -e 'end repeat' \
+      -e 'try' \
+      -e 'close stopWindow' \
+      -e 'end try' \
+      -e 'end tell' \
+      -e 'end run' \
+      "${pbj_terminal_ttys[@]}" >/dev/null 2>&1
   ) &!
 }
 
@@ -37,6 +55,13 @@ for port in "${PBJ_PORTS[@]}"; do
 
     if [[ ( "$process_root" == "$PBJ_ROOT" && "$process_command" == *"uvicorn"*"app.main:app"* ) ||
           ( "$port" == "5173" && "$process_root" == "$PBJ_ROOT/.evaluations/openreel-video"* ) ]]; then
+      process_tty="$(ps -p "$pid" -o tty= 2>/dev/null | tr -d '[:space:]')"
+      if [[ -n "$process_tty" && "$process_tty" != "??" ]]; then
+        [[ "$process_tty" == /dev/* ]] || process_tty="/dev/$process_tty"
+        if (( ${pbj_terminal_ttys[(Ie)$process_tty]} == 0 )); then
+          pbj_terminal_ttys+=("$process_tty")
+        fi
+      fi
       stop_process_tree "$pid"
       stopped=$((stopped + 1))
     fi
