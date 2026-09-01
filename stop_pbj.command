@@ -5,31 +5,16 @@ set -u
 PBJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PBJ_PORTS=(8000 8001 5173)
 stopped=0
-launcher_tty="$(tty 2>/dev/null || true)"
-
 close_launcher_terminal() {
-  if [[ "${TERM_PROGRAM:-}" != "Apple_Terminal" || "$launcher_tty" != /dev/* ]]; then
+  if [[ "${TERM_PROGRAM:-}" != "Apple_Terminal" ]]; then
     return
   fi
 
-  # Let this script finish, then close only the Terminal tab that launched it.
+  # A double-clicked .command file opens in Terminal's front window. Give the
+  # shell time to finish, then close that launcher window.
   (
-    sleep 0.3
-    osascript \
-      -e 'on run argv' \
-      -e 'set targetTTY to item 1 of argv' \
-      -e 'tell application "Terminal"' \
-      -e 'repeat with terminalWindow in windows' \
-      -e 'repeat with terminalTab in tabs of terminalWindow' \
-      -e 'if tty of terminalTab is targetTTY then' \
-      -e 'close terminalTab' \
-      -e 'return' \
-      -e 'end if' \
-      -e 'end repeat' \
-      -e 'end repeat' \
-      -e 'end tell' \
-      -e 'end run' \
-      "$launcher_tty" >/dev/null 2>&1
+    sleep 0.5
+    osascript -e 'tell application "Terminal" to close front window' >/dev/null 2>&1
   ) &!
 }
 
