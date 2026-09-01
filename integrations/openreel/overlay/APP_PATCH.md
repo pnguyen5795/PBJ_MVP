@@ -81,6 +81,12 @@ Apply these changes to pinned OpenReel `apps/web/src/App.tsx`:
     and scroll the padded native timeline beneath it; scrolling scrubs the
     existing OpenReel playhead time, and playback advances the timeline under
     the fixed line. **Export & Approve** remains pinned in the toolbar.
+25. Mark only PBJ-launched sessions at the application root and use that scope
+    to carry PBJ's warm cream canvas, white surfaces, restrained purple active
+    states, and black pill-shaped **Export & Approve** action into OpenReel.
+    Align the compact toolbar, editor body, and bottom tool tray with iPhone safe
+    areas and set the browser theme color for the duration of the PBJ session.
+    Standalone OpenReel sessions retain OpenReel's native tokens and controls.
 
 Do not add callbacks to individual editor tools. OpenReel owns move, trim, split,
 crop, playback, undo/redo, and all other editing behavior. PBJ receives complete

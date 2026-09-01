@@ -210,7 +210,7 @@ Timeline Ready exposes exactly one 56-pixel OpenReel action.
 
 ### Phase 5 — OpenReel continuity
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Create a visually continuous transition from PBJ into the governed OpenReel
   route.
@@ -219,6 +219,28 @@ Timeline Ready exposes exactly one 56-pixel OpenReel action.
 
 **Gate:** snapshot restore, media hydration, Export & Approve, and OpenReel tool
 ownership pass regression testing.
+
+Implemented:
+
+- added a PBJ-session presentation boundary at OpenReel's application root so
+  PBJ's warm cream, white, black, and purple visual system continues into the
+  editor without changing standalone OpenReel;
+- aligned the compact editor toolbar, editing surface, and bottom tool tray with
+  iPhone top, side, and bottom safe areas and set a matching PBJ session browser
+  theme color;
+- restyled the existing PBJ-governed **Export & Approve** action as the same
+  black rounded primary action used throughout the facelift, while leaving
+  OpenReel's renderer and PBJ's two explicit confirmations unchanged;
+- added a restrained PBJ marker in the editor toolbar without importing Troy's
+  Studio, timeline, editor tools, export behavior, state, or services;
+- preserved OpenReel ownership of every manual editing operation and PBJ
+  ownership of handoff, media permission, snapshots, approval, and learning.
+
+Verification: OpenReel's complete web test suite passes (863 tests, 7 skipped),
+including PBJ projection, snapshot lifecycle, media hydration, export receipt,
+and compatibility coverage. The production TypeScript/Vite build succeeds. The
+complete PBJ suite and Phase 5 boundary tests pass, and the reproducible patch
+applies cleanly to the pinned OpenReel revision.
 
 ### Phase 6 — iPhone and system QA
 

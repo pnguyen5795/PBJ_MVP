@@ -27,7 +27,7 @@ index 5525139..54e37da 100644
      {
        "src": "/icons/icon-192.png",
 diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
-index 63839d9..176f9a7 100644
+index 63839d9..31dc6f5 100644
 --- a/apps/web/src/App.tsx
 +++ b/apps/web/src/App.tsx
 @@ -1,4 +1,4 @@
@@ -80,10 +80,23 @@ index 63839d9..176f9a7 100644
    const { showDialog, availableSaves, recover, dismiss, clearAll } = useProjectRecovery();
  
    const { route, params, navigate, parsedDimensions, fps } = useRouter();
-@@ -55,6 +72,36 @@ function App() {
+@@ -55,6 +72,49 @@ function App() {
  
    useKieAIPoller();
  
++  useEffect(() => {
++    if (!isPBJProject) return;
++    const root = document.documentElement;
++    const theme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
++    const previousTheme = theme?.content;
++    root.dataset.pbjSession = "true";
++    if (theme) theme.content = "#fff8f1";
++    return () => {
++      delete root.dataset.pbjSession;
++      if (theme && previousTheme) theme.content = previousTheme;
++    };
++  }, [isPBJProject]);
++
 +  useEffect(() => {
 +    const projectId = launchedPBJProjectId;
 +    if (!projectId) return;
@@ -117,12 +130,13 @@ index 63839d9..176f9a7 100644
    useEffect(() => {
      if (hasHandledInitialRoute.current) return;
  
-@@ -145,9 +192,30 @@ function App() {
+@@ -145,9 +205,31 @@ function App() {
    const isSharePage = route === "share" && params.shareId;
  
    return (
 -    <div className="h-screen w-screen bg-background text-text-primary overflow-hidden">
 +    <div
++      data-pbj-session={isPBJProject ? "true" : undefined}
 +      className="h-screen w-screen bg-background text-text-primary overflow-hidden"
 +      style={{ height: "100dvh" }}
 +    >
@@ -150,7 +164,7 @@ index 63839d9..176f9a7 100644
          <Suspense fallback={<LoadingSpinner message="Loading Motion Creator..." />}>
            <MotionCreatorApp />
          </Suspense>
-@@ -166,7 +234,7 @@ function App() {
+@@ -166,7 +248,7 @@ function App() {
          onClose={closeModal}
        />
        <SearchModal isOpen={activeModal === "search"} onClose={closeModal} />
@@ -192,7 +206,7 @@ index af72428..65c65ba 100644
      checkMobile();
      window.addEventListener("resize", checkMobile);
 diff --git a/apps/web/src/components/editor/EditorInterface.tsx b/apps/web/src/components/editor/EditorInterface.tsx
-index 15695cc..0dac963 100644
+index 15695cc..d394b91 100644
 --- a/apps/web/src/components/editor/EditorInterface.tsx
 +++ b/apps/web/src/components/editor/EditorInterface.tsx
 @@ -1,5 +1,17 @@
@@ -282,7 +296,7 @@ index 15695cc..0dac963 100644
 +      <div className="relative z-20 flex h-full w-full select-none flex-col overflow-hidden bg-bg font-sans text-fg">
 +        <Toolbar />
 +
-+        <main className="relative flex min-h-0 flex-1 flex-col gap-1.5 bg-bg p-1.5">
++        <main className="pbj-mobile-editor-main relative flex min-h-0 flex-1 flex-col gap-1.5 bg-bg p-1.5">
 +          <section className="min-h-0 flex-[1.75] overflow-hidden rounded-2xl border border-border bg-stage-bg shadow-sm">
 +            <PanelErrorBoundary name="Stage">
 +              <Preview />
@@ -334,7 +348,7 @@ index 15695cc..0dac963 100644
 +
 +        <nav
 +          aria-label={selectedClip ? "Selected clip tools" : "Editor tools"}
-+          className="shrink-0 border-t border-border bg-bg-1 px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5"
++          className="pbj-mobile-editor-tools shrink-0 border-t border-border bg-bg-1 px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5"
 +        >
 +          <div className="flex items-stretch justify-around gap-0.5">
 +            {selectedClip ? (
@@ -726,7 +740,7 @@ index d338a73..072da59 100644
        </div>
      </div>
 diff --git a/apps/web/src/components/editor/Toolbar.tsx b/apps/web/src/components/editor/Toolbar.tsx
-index 572eada..4ab9cb2 100644
+index 572eada..43b87cb 100644
 --- a/apps/web/src/components/editor/Toolbar.tsx
 +++ b/apps/web/src/components/editor/Toolbar.tsx
 @@ -1,4 +1,5 @@
@@ -867,12 +881,12 @@ index 572eada..4ab9cb2 100644
    );
  
  
-@@ -415,16 +482,16 @@ export const Toolbar: React.FC = () => {
+@@ -415,16 +482,23 @@ export const Toolbar: React.FC = () => {
    ];
  
    return (
 -    <header className="h-[60px] flex items-center gap-[18px] px-[18px] bg-bg-1 border-b border-border shrink-0 z-30 relative">
-+    <header className="h-[60px] flex items-center gap-2 px-2 md:gap-[18px] md:px-[18px] bg-bg-1 border-b border-border shrink-0 z-30 relative">
++    <header className="pbj-editor-toolbar h-[60px] flex items-center gap-2 px-2 md:gap-[18px] md:px-[18px] bg-bg-1 border-b border-border shrink-0 z-30 relative">
        {/* ─── Left: mode switch ────────────────────────────────── */}
        <WorkspaceModeTabs
          activeMode="video"
@@ -881,13 +895,20 @@ index 572eada..4ab9cb2 100644
 +        className="hidden md:flex shrink-0"
        />
  
++      {pbjProjection && (
++        <span className="pbj-editor-badge inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-1 text-[10px] font-bold tracking-[0.12em] text-accent">
++          <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
++          PBJ
++        </span>
++      )}
++
        {/* ─── Center: project name ─────────────────────────────── */}
 -      <div className="flex flex-1 min-w-0 items-center justify-center gap-1.5">
 +      <div className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-1.5">
          <ToolcraftTextInputControl
            label="Project name"
            isLabelHidden
-@@ -444,6 +511,9 @@ export const Toolbar: React.FC = () => {
+@@ -444,6 +518,9 @@ export const Toolbar: React.FC = () => {
          />
          <ProjectSwitcher />
        </div>
@@ -897,12 +918,12 @@ index 572eada..4ab9cb2 100644
  
        {/* ─── Right: export only ───────────────────────────────── */}
        <div className="flex items-center justify-end shrink-0">
-@@ -481,11 +551,11 @@ export const Toolbar: React.FC = () => {
+@@ -481,11 +558,11 @@ export const Toolbar: React.FC = () => {
              <button
                type="button"
                onClick={() => handleExport("mp4")}
 -              className="rounded-l-[8px] rounded-r-none bg-accent px-[18px] py-[9px] text-[13px] font-semibold text-white"
-+              className={`${pbjProjection ? "rounded-[8px]" : "rounded-l-[8px] rounded-r-none"} bg-accent px-3 py-[9px] text-[12px] font-semibold text-white md:px-[18px] md:text-[13px]`}
++              className={`${pbjProjection ? "pbj-export-primary rounded-full" : "rounded-l-[8px] rounded-r-none bg-accent"} px-3 py-[9px] text-[12px] font-semibold text-white md:px-[18px] md:text-[13px]`}
              >
 -              Export
 +              {pbjProjection ? "Export & Approve" : "Export"}
@@ -912,7 +933,7 @@ index 572eada..4ab9cb2 100644
                isMenuOpen={isExportOpen}
                onOpenChange={setIsExportOpen}
                hasChevron={false}
-@@ -580,7 +650,7 @@ export const Toolbar: React.FC = () => {
+@@ -580,7 +657,7 @@ export const Toolbar: React.FC = () => {
                  {project.settings.width}×{project.settings.height} •{" "}
                  {project.settings.frameRate}fps
                </Text>
@@ -921,7 +942,7 @@ index 572eada..4ab9cb2 100644
            </div>
          )}
        </div>
-@@ -609,6 +679,43 @@ export const Toolbar: React.FC = () => {
+@@ -609,6 +686,43 @@ export const Toolbar: React.FC = () => {
  
        <SettingsDialog />
  
@@ -953,7 +974,7 @@ index 572eada..4ab9cb2 100644
 +                type="button"
 +                autoFocus
 +                onClick={() => resolvePBJConfirmation(true)}
-+                className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white"
++                className="pbj-confirm-primary rounded-full bg-black px-5 py-2.5 text-sm font-semibold text-white"
 +              >
 +                {pbjConfirmation === "export" ? "Export MP4" : "Approve & finish"}
 +              </button>
@@ -965,6 +986,38 @@ index 572eada..4ab9cb2 100644
        {activeModal === "history" && (
          <>
            <div
+diff --git a/apps/web/src/components/editor/preview/CropModeView.test.ts b/apps/web/src/components/editor/preview/CropModeView.test.ts
+new file mode 100644
+index 0000000..d7d3e45
+--- /dev/null
++++ b/apps/web/src/components/editor/preview/CropModeView.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from "vitest";
++import { cropForAspectRatio } from "./CropModeView";
++
++describe("cropForAspectRatio", () => {
++  it("creates a square pixel crop for portrait media", () => {
++    const crop = cropForAspectRatio(
++      { x: 0, y: 0, width: 1, height: 1 },
++      1,
++      { width: 720, height: 1280 },
++    );
++
++    expect(crop).toEqual({ x: 0, y: 0.21875, width: 1, height: 0.5625 });
++    expect((crop.width * 720) / (crop.height * 1280)).toBeCloseTo(1);
++  });
++
++  it("creates a portrait crop for landscape media", () => {
++    const crop = cropForAspectRatio(
++      { x: 0, y: 0, width: 1, height: 1 },
++      9 / 16,
++      { width: 1920, height: 1080 },
++    );
++
++    expect(crop.height).toBe(1);
++    expect((crop.width * 1920) / (crop.height * 1080)).toBeCloseTo(9 / 16);
++  });
++});
 diff --git a/apps/web/src/components/editor/preview/CropModeView.tsx b/apps/web/src/components/editor/preview/CropModeView.tsx
 index f8e83b0..3221f44 100644
 --- a/apps/web/src/components/editor/preview/CropModeView.tsx
@@ -1277,73 +1330,72 @@ index ab78274..66ea539 100644
          willChange: "transform",
        }}
      >
-diff --git a/apps/web/src/services/export-runner.ts b/apps/web/src/services/export-runner.ts
-index 904c050..c17358d 100644
---- a/apps/web/src/services/export-runner.ts
-+++ b/apps/web/src/services/export-runner.ts
-@@ -249,6 +249,13 @@ async function createFallbackWritable(
-   return (await createOpfsDownloadWritable(filename)) ?? createBufferedDownloadWritable(filename, mime);
- }
- 
-+export async function createDirectDownloadWritable(
-+  filename: string,
-+  mime: string,
-+): Promise<FileSystemWritableFileStream> {
-+  return createFallbackWritable(filename, mime);
-+}
-+
- export async function createDownloadWritable(
-   filename: string,
-   mime: string,
-diff --git a/apps/web/vite.config.ts b/apps/web/vite.config.ts
-index 4df4d45..ce6b8ea 100644
---- a/apps/web/vite.config.ts
-+++ b/apps/web/vite.config.ts
-@@ -61,6 +61,12 @@ export default defineConfig({
-     },
-   },
-   server: {
-+    proxy: {
-+      "/api": {
-+        target: process.env.PBJ_API_ORIGIN || "http://127.0.0.1:8000",
-+        changeOrigin: false,
-+      },
-+    },
-     headers: {
-       "Cross-Origin-Opener-Policy": "same-origin",
-       "Cross-Origin-Embedder-Policy": "require-corp",
-diff --git a/apps/web/src/components/editor/preview/CropModeView.test.ts b/apps/web/src/components/editor/preview/CropModeView.test.ts
-new file mode 100644
-index 0000000..d7d3e45
---- /dev/null
-+++ b/apps/web/src/components/editor/preview/CropModeView.test.ts
-@@ -0,0 +1,26 @@
-+import { describe, expect, it } from "vitest";
-+import { cropForAspectRatio } from "./CropModeView";
-+
-+describe("cropForAspectRatio", () => {
-+  it("creates a square pixel crop for portrait media", () => {
-+    const crop = cropForAspectRatio(
-+      { x: 0, y: 0, width: 1, height: 1 },
-+      1,
-+      { width: 720, height: 1280 },
-+    );
-+
-+    expect(crop).toEqual({ x: 0, y: 0.21875, width: 1, height: 0.5625 });
-+    expect((crop.width * 720) / (crop.height * 1280)).toBeCloseTo(1);
-+  });
-+
-+  it("creates a portrait crop for landscape media", () => {
-+    const crop = cropForAspectRatio(
-+      { x: 0, y: 0, width: 1, height: 1 },
-+      9 / 16,
-+      { width: 1920, height: 1080 },
-+    );
-+
-+    expect(crop.height).toBe(1);
-+    expect((crop.width * 1920) / (crop.height * 1080)).toBeCloseTo(9 / 16);
-+  });
-+});
+diff --git a/apps/web/src/index.css b/apps/web/src/index.css
+index 8683082..8accee9 100644
+--- a/apps/web/src/index.css
++++ b/apps/web/src/index.css
+@@ -107,7 +107,60 @@
+     --accent-fg: oklch(0.99 0 0);
+     --accent-glow: oklch(0.7 0.15 162 / 0.45);
+   }
+-
++  /* PBJ sessions inherit Troy's warm cream, black, and purple balance.
++     The attribute is set only for a PBJ-authorized handoff, so standalone
++     OpenReel retains its native emerald theme and product identity. */
++  html[data-pbj-session="true"],
++  [data-pbj-session="true"] {
++    color-scheme: light;
++    --bg: #fff8f1;
++    --bg-1: #ffffff;
++    --bg-2: #f5f5f5;
++    --bg-3: #eeeeef;
++    --bg-elev: #ffffff;
++    --border: #e5e5ea;
++    --border-strong: #d1d1d6;
++    --fg: #1d1d1f;
++    --fg-2: #3a3a3c;
++    --fg-3: #6b6b6b;
++    --fg-muted: #8e8e93;
++    --hover: #f2f2f7;
++    --selected: #eee7ff;
++    --track-bg: #faf7fc;
++    --tl-bg: #ffffff;
++    --waveform: #9b7aea;
++    --stage-bg: #ffffff;
++    --screen-bg: #ffffff;
++    --accent: #8b5cf6;
++    --accent-strong: #6d3be8;
++    --accent-soft: #eee7ff;
++    --accent-fg: #ffffff;
++    --accent-glow: rgba(139, 92, 246, 0.28);
++    --primary: 258 90% 66%;
++    --ring: 258 90% 66%;
++  }
++  html[data-pbj-session="true"] .pbj-export-primary {
++    min-height: 44px;
++    background: #000;
++    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
++  }
++  html[data-pbj-session="true"] .pbj-export-primary:active,
++  html[data-pbj-session="true"] .pbj-confirm-primary:active {
++    transform: scale(0.97);
++  }
++  @media (max-width: 767px) {
++    html[data-pbj-session="true"] .pbj-editor-toolbar {
++      height: calc(60px + env(safe-area-inset-top));
++      padding-top: env(safe-area-inset-top);
++      padding-right: max(0.5rem, env(safe-area-inset-right));
++      padding-left: max(0.5rem, env(safe-area-inset-left));
++    }
++    html[data-pbj-session="true"] .pbj-mobile-editor-main,
++    html[data-pbj-session="true"] .pbj-mobile-editor-tools {
++      padding-right: max(0.375rem, env(safe-area-inset-right));
++      padding-left: max(0.375rem, env(safe-area-inset-left));
++    }
++  }
+   [data-density="compact"] {
+     --d-text: 12px;
+     --d-text-sm: 10.5px;
 diff --git a/apps/web/src/pbj/pbj-editor-compat.test.ts b/apps/web/src/pbj/pbj-editor-compat.test.ts
 new file mode 100644
 index 0000000..a598288
@@ -2117,3 +2169,38 @@ index 0000000..11176ea
 +    unsubscribe();
 +  };
 +}
+diff --git a/apps/web/src/services/export-runner.ts b/apps/web/src/services/export-runner.ts
+index 904c050..a1d1c25 100644
+--- a/apps/web/src/services/export-runner.ts
++++ b/apps/web/src/services/export-runner.ts
+@@ -248,7 +248,12 @@ async function createFallbackWritable(
+ ): Promise<FileSystemWritableFileStream> {
+   return (await createOpfsDownloadWritable(filename)) ?? createBufferedDownloadWritable(filename, mime);
+ }
+-
++export async function createDirectDownloadWritable(
++  filename: string,
++  mime: string,
++): Promise<FileSystemWritableFileStream> {
++  return createFallbackWritable(filename, mime);
++}
+ export async function createDownloadWritable(
+   filename: string,
+   mime: string,
+diff --git a/apps/web/vite.config.ts b/apps/web/vite.config.ts
+index 4df4d45..ce6b8ea 100644
+--- a/apps/web/vite.config.ts
++++ b/apps/web/vite.config.ts
+@@ -61,6 +61,12 @@ export default defineConfig({
+     },
+   },
+   server: {
++    proxy: {
++      "/api": {
++        target: process.env.PBJ_API_ORIGIN || "http://127.0.0.1:8000",
++        changeOrigin: false,
++      },
++    },
+     headers: {
+       "Cross-Origin-Opener-Policy": "same-origin",
+       "Cross-Origin-Embedder-Policy": "require-corp",
