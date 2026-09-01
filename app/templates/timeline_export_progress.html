@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Exporting {{ project.name }} · PB&J{% endblock %}
+{% block content %}
+<section class="production-page">
+  {% if export.status == 'failed' %}
+    <div class="failure-orb">!</div><h1>We couldn’t finish this export</h1>
+    <p class="production-lead">Your timeline and original footage are safe. No approval was recorded.</p>
+    <div class="production-failure panel"><strong>What happened</strong><p>{{ export.error }}</p><a class="button" href="/projects/{{ project.project_id }}/ready">Return to project</a></div>
+  {% else %}
+    <div class="production-orb"><span></span><span></span><span></span><b>✦</b></div>
+    <p class="eyebrow">FINAL EXPORT</p><h1>Bringing it all together 🥪</h1>
+    <p class="production-lead">PB&J is now combining the original files and checking the finished video.</p>
+    {% with started_at=export.started_at or export.created_at %}{% include "_elapsed_timer.html" %}{% endwith %}
+    <div class="production-stages"><div class="stage active"><i>1</i><span><strong>Rendering originals</strong><small>The timeline is locked to the exact version you approved.</small></span></div><div class="stage"><i>2</i><span><strong>Quality checks</strong><small>Approval is recorded only after required checks pass.</small></span></div></div>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}{% if export.status not in ['failed','complete'] %}<script>setTimeout(function(){location.reload()},2500)</script>{% endif %}{% endblock %}

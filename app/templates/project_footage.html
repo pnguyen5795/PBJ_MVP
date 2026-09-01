@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Add footage · PBJ{% endblock %}
+{% block content %}
+<section class="flow-head">
+  <a href="/projects/new/references" class="back-link">← Back</a>
+  <p class="step-count">NEW PROJECT · 3 OF 4</p>
+  <h1>Add your raw footage 🎥</h1>
+  <p>Choose everything the editing engine should consider.</p>
+</section>
+<section class="flow-layout">
+  {% if uploaded_session %}
+  <div class="panel form"><div class="media-stack">{% for file in uploaded_session.files %}<div class="media-row"><span class="media-icon">▶</span><div><strong>{{ file.original_name }}</strong><small>{{ (file.size_bytes / 1048576)|round(1) }} MB</small></div><em>Uploaded</em></div>{% endfor %}</div><div class="notice success">{{ uploaded_session.files|length }} clip{{ '' if uploaded_session.files|length == 1 else 's' }} uploaded and ready.</div><div class="wizard-actions"><a class="button secondary" href="/projects/new/references">Back</a><a class="button" href="/projects/new/brief?session_id={{ uploaded_session.session_id }}">Next →</a></div></div>
+  {% else %}
+  <form id="footage-upload-form" class="panel form upload-form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true">
+    <input type="hidden" name="style_id" value="{{ style.style_id if style else '' }}">
+    <input type="hidden" name="target_seconds" value="60">
+    <input type="hidden" name="prompt" value="{{ draft.description }}">
+    <input type="hidden" name="name" value="{{ draft.name }}">
+    <label id="footage-dropzone" class="upload-zone" for="footage-input">
+      <input id="footage-input" class="file-input-overlay" type="file" name="footage" accept="video/*" multiple required aria-label="Choose raw footage videos">
+      <span class="upload-icon">↑</span>
+      <strong>Drop videos here or choose files</strong><span class="choose-files">Tap to choose files</span>
+      <small>Photos or Files · MOV, HEVC, H.264 · up to 2 GB per batch</small>
+    </label>
+    <div id="selected-files" class="selected-files" aria-live="polite"></div>
+    <div id="upload-status" class="notice" hidden aria-live="polite"></div>
+    <div class="wizard-actions"><a class="button secondary" href="/projects/new/references">Back</a><button id="upload-submit" class="button" type="submit">Upload &amp; next →</button></div>
+  </form>
+  {% endif %}
+  <aside class="flow-aside">
+    <span>YOUR MEDIA 🔒</span>
+    <h3>Only your footage is used.</h3>
+    <p>The editor can trim, reorder, crop, zoom, and combine your clips. It will not generate new footage, voices, or music.</p>
+    <small>Recipes stay behind the scenes. PB&amp;J records why one was chosen so the decision can be reviewed and improved.</small>
+  </aside>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if not uploaded_session %}
+<script>
+(function(){
+  const form=document.getElementById('footage-upload-form');
+  const input=document.getElementById('footage-input');
+  const zone=document.getElementById('footage-dropzone');
+  const list=document.getElementById('selected-files');
+  const submit=document.getElementById('upload-submit');
+  const status=document.getElementById('upload-status');
+  function formatSize(bytes){if(bytes<1048576)return Math.max(1,Math.round(bytes/1024))+' KB';return (bytes/1048576).toFixed(1)+' MB'}
+  function showFiles(){
+    const files=Array.from(input.files||[]);
+    list.innerHTML=files.length?'<div class="selected-files-head"><strong>'+files.length+' video'+(files.length===1?'':'s')+' selected</strong><button type="button" id="clear-footage">Clear</button></div>'+files.map(function(file){return '<div class="selected-file"><span>▶</span><div><strong>'+file.name.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})+'</strong><small>'+formatSize(file.size)+'</small></div></div>'}).join(''):'';
+    const clear=document.getElementById('clear-footage');
+    if(clear)clear.addEventListener('click',function(){input.value='';showFiles()});
+  }
+  ['dragenter','dragover'].forEach(function(name){input.addEventListener(name,function(){zone.classList.add('drag-active')})});
+  ['dragleave','drop'].forEach(function(name){input.addEventListener(name,function(){zone.classList.remove('drag-active');setTimeout(showFiles,0)})});
+  input.addEventListener('change',showFiles);
+  function message(text, error){status.hidden=false;status.className='notice '+(error?'error':'');status.textContent=text}
+  function uploadOne(sessionId, file, index, total){
+    return new Promise(function(resolve,reject){
+      const request=new XMLHttpRequest();
+      request.open('POST','/projects/upload-session/'+encodeURIComponent(sessionId)+'/file');
+      request.upload.onprogress=function(event){
+        if(event.lengthComputable){
+          const percent=Math.round(event.loaded/event.total*100);
+          message('Uploading video '+index+' of '+total+' · '+percent+'%');
+        } else message('Uploading video '+index+' of '+total+'…');
+      };
+      request.onload=function(){
+        let payload={};
+        try{payload=JSON.parse(request.responseText||'{}')}catch(e){}
+        if(request.status>=200&&request.status<300)resolve(payload);
+        else reject(new Error(payload.detail||'Video '+index+' could not be uploaded.'));
+      };
+      request.onerror=function(){reject(new Error('The connection stopped while uploading video '+index+'.'))};
+      const body=new FormData(); body.append('footage',file,file.name); request.send(body);
+    });
+  }
+  form.addEventListener('submit',function(event){
+    event.preventDefault();
+    const files=Array.from(input.files||[]);
+    if(!files.length){message('Choose at least one video before continuing.',true);return}
+    const totalBytes=files.reduce(function(sum,file){return sum+file.size},0);
+    if(totalBytes>2147483648){message('This batch is over 2 GB. Choose fewer videos, then add another batch later.',true);return}
+    submit.disabled=true; submit.textContent='Preparing secure upload…';
+    const startBody=new FormData();
+    startBody.append('name',form.querySelector('[name=name]').value||'');
+    startBody.append('style_id',form.querySelector('[name=style_id]').value);
+    startBody.append('prompt',form.querySelector('[name=prompt]').value||'');
+    startBody.append('target_seconds',form.querySelector('[name=target_seconds]').value||'60');
+    fetch('/projects/upload-session',{method:'POST',body:startBody})
+      .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})})
+      .then(function(session){
+        let nextIndex=0;
+        function worker(){
+          const index=nextIndex++;
+          if(index>=files.length)return Promise.resolve();
+          return uploadOne(session.session_id,files[index],index+1,files.length).then(worker);
+        }
+        const workers=window.matchMedia('(max-width: 720px)').matches?1:2;
+        return Promise.all(Array.from({length:workers},worker)).then(function(){message('All videos uploaded. Checking their media details…');return fetch('/projects/upload-session/'+encodeURIComponent(session.session_id)+'/complete',{method:'POST'})})
+      })
+      .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not finish the upload.');return payload})})
+      .then(function(result){message('Upload complete. Opening the final details…');window.location='/projects/new/brief?session_id='+encodeURIComponent(result.session_id)})
+      .catch(function(error){submit.disabled=false;submit.textContent='Upload and review brief →';message(error.message||'The upload stopped. You can try again.',true)})
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

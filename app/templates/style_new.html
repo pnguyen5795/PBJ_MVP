@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}New recipe · PBJ{% endblock %}
+{% block content %}<section class="page-head"><p class="eyebrow">RECIPE LAB · STEP 1 OF 3</p><h1>Teach PBJ an editing approach</h1><p>Choose 1–5 authorized finished videos, no more than 30 minutes combined. Three to five representative videos produce stronger evidence.</p></section>
+<form class="panel form" action="/styles" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="next_action" value="{{ next_action }}">
+  <div class="wizard-track"><span class="current">1. Upload references</span><span>2. Analyze evidence</span><span>3. Review recipe</span></div>
+  <label>Recipe label <span>Optional</span><input name="label" placeholder="Fast-paced golf short"></label>
+  <label>Finished reference videos<input type="file" name="references" accept="video/*" multiple required><small>The originals are copied into local managed storage and retained.</small></label>
+  <div class="notice">The next stage compares the references, separates recurring rules from one-off choices, and produces a plain-English editing description for your approval.</div>
+  <label class="approval-confirm"><input type="checkbox" name="contribution_consent" value="true" required><span>I’m authorized to use these videos and understand this Recipe Lab contribution and its derived recipe evidence will be visible to beta testers.</span></label>
+  <button class="button" type="submit">Next: Save reference videos</button>
+</form>{% endblock %}

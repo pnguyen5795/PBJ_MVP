@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Creating your cut · PBJ{% endblock %}
+{% block content %}
+{% set status = project.status %}
+<section class="production-page">
+  <p class="step-count">STEP 4 OF 4</p>
+{% if status in ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}
+    <div class="failure-orb">!</div>
+    <h1>We couldn’t finish this cut</h1>
+    <p class="production-lead">Your footage and completed analysis are safe. You can try this step again without starting over.</p>
+    <div class="production-failure panel">
+      <strong>What happened</strong>
+      <p>{{ project.last_error or 'The editing process stopped before the video was complete.' }}</p>
+      {% if status == 'analysis_failed' %}
+        <form action="/projects/{{ project.project_id }}/brief" method="post">
+          <input type="hidden" name="prompt" value="{{ project.prompt }}">
+          <input type="hidden" name="target_seconds" value="{{ project.target_duration_seconds }}">
+          <button class="button" type="submit">Try again</button>
+        </form>
+      {% else %}
+        <form action="/projects/{{ project.project_id }}/retry" method="post">
+          <button class="button" type="submit">Try this edit again</button>
+        </form>
+      {% endif %}
+      <a href="/projects/{{ project.project_id }}/brief">Adjust the creative brief</a>
+      {% if project.last_error_details %}<details><summary>Technical details</summary><p>{{ project.last_error_details.message }}</p></details>{% endif %}
+    </div>
+  {% else %}
+    <div class="production-orb"><span></span><span></span><span></span><b>✦</b></div>
+    <p class="eyebrow">PREPARING YOUR TIMELINE</p>
+    <h1>Your first edit is cooking 🥪</h1>
+    <p class="production-lead">PBJ is turning {{ project.raw_files|length }} clips into a validated timeline package for OpenReel. No combined video is rendered at this stage.</p>
+    {% with started_at=project.active_started_at or project.updated_at %}{% include "_elapsed_timer.html" %}{% endwith %}
+    <div class="production-stages">
+      <div class="stage {{ 'active' if status in ['analysis_queued','analyzing_footage'] else 'done' }}"><i>1</i><span><strong>Understanding your footage</strong><small>Finding actions, dialogue, reactions, and visual moments</small></span></div>
+      <div class="stage {{ 'active' if status in ['footage_analyzed','timeline_queued','planning_timeline'] else ('done' if status == 'preparing_proxies' else '') }}"><i>2</i><span><strong>Building and validating the story</strong><small>Selecting, ordering, and checking source ranges</small></span></div>
+      <div class="stage {{ 'active' if status == 'preparing_proxies' else '' }}"><i>3</i><span><strong>Preparing the handoff</strong><small>Creating lightweight per-file previews, thumbnails, and waveforms</small></span></div>
+    </div>
+    <p class="muted">This page will move forward automatically when your cut is ready.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}{% if status not in ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}<script>setTimeout(function(){location.reload()},3000)</script>{% endif %}{% endblock %}

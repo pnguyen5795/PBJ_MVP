@@ -1,0 +1,197 @@
+import json
+import tempfile
+import unittest
+from base64 import b64encode
+from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from itsdangerous import TimestampSigner
+
+import app.main as main_module
+from app.config import settings
+from app.storage import JsonStore
+from app.timeline.contracts import empty_timeline
+from app.timeline.storage import TimelineStore
+
+
+class CanonicalUIFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = JsonStore(Path(self.temp.name))
+        style = self.store.create_style("Test recipe", [], {})
+        self.store.update_style(
+            style["style_id"],
+            recipe={"summary": "A clear chronological edit", "rules": []},
+            style_analysis={"summary": "A clear chronological edit", "rules": []},
+            recipe_version="1.0.0",
+            recipe_status="validated",
+            approval={"approved": True, "approved_at": "now"},
+        )
+        project = self.store.create_project(
+            "Flow contract", style["style_id"], "pegasus",
+            "Make a fast chronological 45 second video.", 45, [], {},
+            {"pacing": "fast", "requirements": []},
+            {"method": "test", "confidence": 1.0}, None,
+        )
+        run = {
+            "run_id": "run-20260827-abcdef",
+            "revision_number": 1,
+            "feedback": None,
+            "output_path": "projects/%s/runs/run-20260827-abcdef/rough-cut.mp4" % project["project_id"],
+        }
+        self.project_id = project["project_id"]
+        self.store.update_project(self.project_id, status="rough_cut_ready", runs=[run], latest_run=run)
+        timeline = empty_timeline(self.project_id, [])
+        TimelineStore(self.store).initialize(self.project_id, timeline)
+        self.store.update_project(self.project_id, status="timeline_ready")
+        self.store_patch = patch.object(main_module, "store", self.store)
+        self.store_patch.start()
+        self.client = TestClient(main_module.app)
+        session = {"authorized": True, "owner": True, "device_id": "test-device"}
+        signed = TimestampSigner(settings.session_secret).sign(b64encode(json.dumps(session).encode())).decode()
+        self.client.cookies.set("session", signed)
+
+    def set_session(self, owner: bool, device_id: str = "test-device"):
+        session = {"authorized": True, "owner": owner, "device_id": device_id}
+        signed = TimestampSigner(settings.session_secret).sign(b64encode(json.dumps(session).encode())).decode()
+        self.client.cookies.set("session", signed)
+
+    def tearDown(self):
+        self.client.close()
+        self.store_patch.stop()
+        self.temp.cleanup()
+
+    def test_timeline_ready_hands_the_project_to_openreel(self):
+        response = self.client.get("/projects/%s/ready" % self.project_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Your clips are prepared", response.text)
+        self.assertIn("/projects/%s/openreel" % self.project_id, response.text)
+        self.assertIn("Open in Editor", response.text)
+        self.assertNotIn("/static/editor/", response.text)
+
+        handoff = self.client.get(
+            "/projects/%s/openreel" % self.project_id,
+            follow_redirects=False,
+        )
+        self.assertEqual(handoff.status_code, 303)
+        self.assertEqual(
+            handoff.headers["location"],
+            "http://testserver:5173/?pbjProject=%s" % self.project_id,
+        )
+
+    def test_legacy_review_and_revision_redirect_to_ready(self):
+        for suffix in ("review", "revision"):
+            response = self.client.get("/projects/%s/%s" % (self.project_id, suffix), follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertIn("/projects/%s/ready" % self.project_id, response.headers["location"])
+
+    def test_legacy_approval_redirects_to_ready(self):
+        response = self.client.get("/projects/%s/approval" % self.project_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Your clips are prepared", response.text)
+
+    def test_only_the_latest_completed_revision_can_be_approved(self):
+        response = self.client.post(
+            "/projects/%s/approve" % self.project_id,
+            data={"run_id": "run-20260827-000000"},
+        )
+        self.assertEqual(response.status_code, 410)
+
+    def test_processing_copy_distinguishes_timeline_stages(self):
+        self.store.update_project(self.project_id, status="planning_timeline")
+        response = self.client.get("/projects/%s/production-progress" % self.project_id)
+        self.assertIn("PREPARING YOUR TIMELINE", response.text)
+        self.assertIn("Building and validating the story", response.text)
+        self.assertNotIn("Rendering the video", response.text)
+
+    def test_restart_marks_interrupted_job_as_retryable(self):
+        self.store.update_project(
+            self.project_id, status="preparing_proxies", active_revision=1,
+            active_task="Preparing the handoff",
+        )
+        main_module.recover_interrupted_jobs()
+        recovered = self.store.project(self.project_id)
+        self.assertEqual(recovered["status"], "timeline_failed")
+        self.assertIsNone(recovered["active_revision"])
+        self.assertIn("interrupted", recovered["last_error"].lower())
+
+    def test_retired_analyzer_first_pages_only_redirect(self):
+        for suffix in ("analysis", "analysis-progress", "analysis-review", "rough-cut", "rough-cut-progress"):
+            response = self.client.get("/projects/%s/%s" % (self.project_id, suffix), follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertNotIn("text/html", response.headers.get("content-type", ""))
+
+    def test_retired_flow_templates_do_not_return(self):
+        templates_dir = settings.templates_dir
+        retired = (
+            "project_new.html", "project_start.html", "project_saved_style.html",
+            "project_detail.html", "project_analysis.html", "project_analysis_progress.html",
+            "project_analysis_review.html", "project_rough_cut.html",
+            "project_rough_cut_progress.html", "project_review.html",
+            "project_revision.html", "project_approval.html", "style_detail.html",
+        )
+        self.assertFalse([name for name in retired if (templates_dir / name).exists()])
+
+    def test_retired_mutation_and_comparison_endpoints_are_removed(self):
+        for suffix in ("analyze", "provider", "rough-cut", "compare"):
+            response = self.client.post("/projects/%s/%s" % (self.project_id, suffix))
+            self.assertIn(response.status_code, (404, 405))
+
+    def test_shared_recipe_approval_requires_owner_access(self):
+        candidate = self.store.create_style("Community candidate", [], {})
+        self.store.update_style(
+            candidate["style_id"], recipe={"summary": "Candidate", "rules": []},
+            recipe_version="1.0.0", recipe_status="testing",
+        )
+        self.set_session(owner=False)
+        response = self.client.post("/styles/%s/approve" % candidate["style_id"])
+        self.assertEqual(response.status_code, 403)
+
+    def test_project_private_recipe_is_isolated_to_its_device(self):
+        private = self.store.create_style("Private references", [], {})
+        self.store.update_style(private["style_id"], project_private=True, device_id="first-device")
+        self.set_session(owner=False, device_id="second-device")
+        response = self.client.get("/styles/%s" % private["style_id"])
+        self.assertEqual(response.status_code, 404)
+
+        # Owner governance applies to shared recipes, not another device's
+        # project-private reference recipe.
+        self.set_session(owner=True, device_id="second-device")
+        response = self.client.get("/styles/%s" % private["style_id"])
+        self.assertEqual(response.status_code, 404)
+
+    def test_normal_project_flow_does_not_expose_analyzer_selection(self):
+        self.client.cookies.clear()
+        session = {
+            "authorized": True,
+            "owner": True,
+            "device_id": "test-device",
+            "project_draft": {
+                "name": "Hidden analyzer",
+                "description": "Make a clean chronological edit.",
+                "style_id": self.store.list_styles()[0]["style_id"],
+            },
+        }
+        signed = TimestampSigner(settings.session_secret).sign(b64encode(json.dumps(session).encode())).decode()
+        self.client.cookies.set("session", signed)
+        response = self.client.get("/projects/new/footage")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="provider"', response.text)
+
+    def test_recipe_lab_does_not_expose_analyzer_or_refresh_controls(self):
+        style_id = self.store.list_styles()[0]["style_id"]
+        response = self.client.get("/styles/%s/analysis" % style_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="providers"', response.text)
+        self.assertNotIn('name="refresh"', response.text)
+
+    def test_recipe_lab_requires_explicit_shared_contribution_consent(self):
+        response = self.client.get("/styles/new")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="contribution_consent"', response.text)
+        self.assertIn("visible to beta testers", response.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

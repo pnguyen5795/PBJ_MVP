@@ -1,0 +1,18 @@
+.env
+.venv*/
+.pnpm-store/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+data/
+outputs/
+.artifact_work/
+frontend/editor/node_modules/
+.evaluations/
+/pbj-*.png
+/pbj-*.jpg
+/pbj-*.jpeg
+/pbj-*.svg
+/Open PBJ Video Editor.terminal
+*.log

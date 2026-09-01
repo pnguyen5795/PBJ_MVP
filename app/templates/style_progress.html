@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Building recipe · PBJ{% endblock %}
+{% block content %}
+<section class="production-page">
+  <p class="step-count">LEARNING YOUR STYLE</p>
+  <div class="production-orb"><span></span><span></span><span></span><b>◈</b></div>
+  <h1>{{ 'Building the next recipe version' if style.status in ['revision_queued','revising_style'] else 'Comparing the reference videos' }}</h1>
+  <p class="production-lead">{{ 'Applying your correction while preserving the reference evidence.' if style.status in ['revision_queued','revising_style'] else 'Identifying which editing patterns repeat, when they apply, and which appeared only once.' }}</p>
+  {% with started_at=style.active_started_at or style.updated_at %}{% include "_elapsed_timer.html" %}{% endwith %}
+  <div class="production-stages">
+    <div class="stage active"><i>1</i><span><strong>Analyzing every reference</strong><small>Preserving timestamped evidence from each finished video</small></span></div>
+    <div class="stage"><i>2</i><span><strong>Comparing recurring patterns</strong><small>Separating core, common, conditional, optional, and one-off choices</small></span></div>
+    <div class="stage"><i>3</i><span><strong>Writing the editing recipe</strong><small>Turning supported observations into reusable direction</small></span></div>
+  </div>
+  <p class="muted">This page will move forward automatically.</p>
+</section>
+{% endblock %}
+{% block scripts %}<script>setTimeout(function(){location.reload()},3000)</script>{% endblock %}

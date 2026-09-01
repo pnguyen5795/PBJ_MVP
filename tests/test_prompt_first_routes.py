@@ -1,0 +1,59 @@
+import unittest
+
+from fastapi.testclient import TestClient
+
+from app.config import settings
+from app.main import app
+
+
+class PromptFirstProjectFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        if settings.access_code:
+            self.client.post("/access", data={"code": settings.access_code})
+
+    def tearDown(self):
+        self.client.close()
+
+    def test_normal_flow_starts_with_a_plain_language_brief(self):
+        response = self.client.get("/projects/new")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Describe the video you want", response.text)
+        self.assertNotIn("Use a style", response.text)
+        self.assertNotIn("Choose an editing style", response.text)
+
+        response = self.client.post(
+            "/projects/new/describe",
+            data={"name": "Flow test", "description": "Make a fast chronological 45 second video."},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/projects/new/references")
+
+        response = self.client.get("/projects/new/references")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("This step is optional", response.text)
+        self.assertIn('for="reference-input"', response.text)
+        self.assertIn("Tap to choose files", response.text)
+
+        response = self.client.post(
+            "/projects/new/references", data={"skip": "true"}, follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/projects/new/footage")
+
+        response = self.client.get("/projects/new/footage")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Add your raw footage", response.text)
+        self.assertNotIn("Choose an editing style", response.text)
+        self.assertIn('for="footage-input"', response.text)
+
+    def test_retired_recipe_choice_urls_return_to_prompt_first_flow(self):
+        for path in ("/projects/new/saved-style", "/projects/new/engine-decides"):
+            response = self.client.get(path, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/projects/new")
+
+
+if __name__ == "__main__":
+    unittest.main()

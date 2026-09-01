@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}More · PBJ{% endblock %}{% block content %}
+<section class="mobile-page-head"><p class="eyebrow">MORE</p><h1>Your workspace</h1><p>Recipes, connections, and app settings.</p></section>
+<section class="menu-list">
+  <a href="/styles"><span class="menu-icon">🧪</span><div><strong>Recipe Lab</strong><small>Build and inspect editing recipes</small></div><b>›</b></a>
+  <a href="/projects"><span class="menu-icon">🎬</span><div><strong>Your projects</strong><small>Continue an edit</small></div><b>›</b></a>
+  {% if request.session.owner %}
+  <a href="/settings"><span class="menu-icon">⚙️</span><div><strong>Connections</strong><small>OpenAI and video understanding</small></div><b>›</b></a>
+  <a href="/examples"><span class="menu-icon">✨</span><div><strong>Learning library</strong><small>Approved examples and outcomes</small></div><b>›</b></a>
+  <a href="/assets"><span class="menu-icon">☁️</span><div><strong>Remote files</strong><small>Manage provider copies</small></div><b>›</b></a>
+  {% endif %}
+</section>
+{% if request.session.owner %}<div class="notice success">Owner tools are unlocked on this device.</div>{% else %}<details class="owner-unlock" {% if owner_state == 'invalid' %}open{% endif %}><summary>Owner access</summary><p>Unlock private operator controls for shared recipes and provider settings.</p>{% if owner_state == 'invalid' %}<div class="notice error">That owner code did not match.</div>{% endif %}<form action="/owner-access" method="post"><input name="code" type="password" autocapitalize="none" required placeholder="Owner code"><button class="button" type="submit">Unlock</button></form></details>{% endif %}
+<section class="install-card"><span>📲</span><div><strong>Add PBJ to your Home Screen</strong><p>In Safari, tap Share, then Add to Home Screen for the app-like version.</p></div></section>
+{% endblock %}

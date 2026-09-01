@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Timeline ready · PBJ{% endblock %}
+{% block content %}
+<section class="production-page">
+  <div class="success-orb">✓</div>
+  <p class="eyebrow">TIMELINE READY</p>
+  <h1>Your clips are prepared</h1>
+  <p class="production-lead">PBJ created and validated your first timeline. Continue in OpenReel to refine it with the full editing toolkit. Your latest project is restored automatically.</p>
+  <div class="panel">
+    <a class="button large wide" href="/projects/{{ project.project_id }}/openreel">Open in Editor</a>
+    <a class="back-link" href="/projects/{{ project.project_id }}/brief">Back to creative brief</a>
+  </div>
+</section>
+{% endblock %}

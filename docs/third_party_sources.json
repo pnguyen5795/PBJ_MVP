@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-31",
+  "dependencies": [
+    {"name": "react", "license": "MIT", "use": "historical retired PBJ editor dependency"},
+    {"name": "react-dom", "license": "MIT", "use": "historical retired PBJ editor dependency"},
+    {"name": "vite", "license": "MIT", "use": "historical retired PBJ editor build dependency"},
+    {"name": "@vitejs/plugin-react", "license": "MIT", "use": "historical retired PBJ editor build dependency"},
+    {"name": "typescript", "license": "Apache-2.0", "use": "historical retired PBJ editor build dependency"},
+    {"name": "@types/react", "license": "MIT", "use": "historical retired PBJ editor dependency"},
+    {"name": "@types/react-dom", "license": "MIT", "use": "historical retired PBJ editor dependency"}
+  ],
+  "reviewed_sources": [
+    {
+      "name": "OpenKlip",
+      "revision": "93dd0010",
+      "license": "MIT",
+      "status": "reviewed_not_imported",
+      "candidate_use": "source mapping, framing, manual locks, and media acceptance tests"
+    },
+    {
+      "name": "Timeline Studio",
+      "revision": "51ee4c62",
+      "license": "MIT",
+      "status": "reviewed_not_imported",
+      "candidate_use": "stable timeline identifiers, transactions, diffs, and interactions"
+    },
+    {
+      "name": "Dawn Cut",
+      "revision": "7de68f",
+      "license": "MIT",
+      "status": "reviewed_not_imported",
+      "candidate_use": "typed commands, reducer, validation, inverse operations, and audit structure"
+    },
+    {
+      "name": "Kinocut",
+      "revision": "882137",
+      "license": "Apache-2.0",
+      "status": "reviewed_not_imported",
+      "candidate_use": "export receipts and QA result structure"
+    },
+    {
+      "name": "OpenChatCut",
+      "revision": "f6d9c37",
+      "license": "AGPL-3.0",
+      "status": "reviewed_not_imported",
+      "candidate_use": "multitrack gestures, AI proposal panel, and grouped undo and redo"
+    },
+    {
+      "name": "Reels Engine",
+      "revision": "ca3195",
+      "license": "MIT",
+      "status": "reviewed_not_imported",
+      "candidate_use": "phrase-safe boundaries, framing checks, and media QA"
+    },
+    {
+      "name": "OpenReel Video",
+      "revision": "5f3c85e5fc223c86060bf4b12e1b4dec58e9b8a9",
+      "license": "MIT",
+      "status": "adapted_integration_overlay",
+      "candidate_use": "OpenReel editor, playback, and compatible existing editing features behind a PBJ-owned adapter; PBJ does not recreate those features, while OpenReel persistence, AI, permissions, generated media, and direct export paths remain non-authoritative or disabled"
+    }
+  ],
+  "adapted_sources": [
+    {
+      "name": "OpenReel Video",
+      "revision": "5f3c85e5fc223c86060bf4b12e1b4dec58e9b8a9",
+      "license": "MIT",
+      "upstream_files": [
+        "apps/web/src/App.tsx",
+        "apps/web/src/components/MobileBlocker.tsx",
+        "apps/web/src/components/editor/Toolbar.tsx",
+        "apps/web/src/components/editor/EditorInterface.tsx",
+        "apps/web/src/components/editor/Timeline.tsx",
+        "apps/web/src/components/editor/preview/CropModeView.tsx",
+        "apps/web/src/components/editor/timeline/ClipComponent.tsx",
+        "apps/web/src/components/editor/timeline/Playhead.tsx",
+        "apps/web/src/services/export-runner.ts",
+        "apps/web/index.html",
+        "apps/web/public/manifest.json",
+        "apps/web/vite.config.ts"
+      ],
+      "pbj_files": [
+        "integrations/openreel/overlay/apps/web/src/pbj/pbj-export.ts",
+        "integrations/openreel/overlay/apps/web/src/pbj/pbj-editor-compat.ts",
+        "integrations/openreel/overlay/apps/web/src/pbj/pbj-project-loader.ts",
+        "integrations/openreel/overlay/apps/web/src/pbj/pbj-sync.ts",
+        "integrations/openreel/overlay/APP_PATCH.md",
+        "integrations/openreel/openreel-pbj.patch",
+        "integrations/openreel/LICENSE.openreel",
+        "scripts/setup_openreel.command"
+      ],
+      "modifications": "Loads an opt-in PBJ-projected OpenReel Project through OpenReel's existing project store, hydrates PBJ's mobile-safe per-source proxies sequentially with actual byte-size metadata and abortable requests, remembers a device-local last-project pointer only for Home Screen standalone resume while revalidating all PBJ authority on every launch, shows an explicit failed-resume state, suppresses competing local-recovery prompts for PBJ sessions, proxies PBJ API requests during local hosting, saves debounced whole-project snapshots with an immediate size-safe lifecycle flush when Safari backgrounds or closes the app, connects the standard MP4 renderer to PBJ's intent/receipt/approval gates, corrects OpenReel crop presets to calculate aspect ratios in source pixel space, exposes OpenReel's existing clip move through an accessible keyboard shortcut, presents OpenReel's Preview and compact native Timeline together on narrow screens with a fixed center playhead and padded scrolling timeline, places its Assets and Inspector panels in sheets and its existing selected-clip commands in a contextual bottom tray, adapts OpenReel's existing clip move and trim interactions from mouse-only listeners to pointer events with wider narrow-screen trim targets, bypasses the inherited Desktop Only overlay for PBJ sessions without user-agent sniffing, and enables safe-area, enforced dynamic-height, standalone, and unlocked-orientation PWA presentation. No editing feature is reimplemented or individually bridged.",
+      "authority_boundary": "OpenReel owns editing-session project state, tools, playback, and undo/redo. PBJ owns the initial handoff, media permissions, durable snapshots, approval, and learning."
+    }
+  ]
+}

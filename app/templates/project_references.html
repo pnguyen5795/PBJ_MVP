@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block title %}Optional examples · PBJ{% endblock %}{% block content %}
+<section class="focused-flow">
+  <a href="/projects/new" class="back-link">← Back</a>
+  <p class="step-count">NEW PROJECT · 2 OF 4</p>
+  <h1>Have an example? 👀</h1>
+  <p class="flow-copy">Add finished videos that show the editing direction. This step is optional.</p>
+  <form class="panel form reference-project-form" action="/projects/new/references" method="post" enctype="multipart/form-data">
+    <label class="upload-zone compact-upload" for="reference-input">
+      <input id="reference-input" class="file-input-overlay" type="file" name="references" accept="video/*" multiple aria-label="Choose optional finished reference videos">
+      <span class="upload-icon">↑</span><strong>Choose reference videos</strong><span class="choose-files">Tap to choose files</span><small>Optional · up to 5 videos · 30 minutes combined</small>
+    </label>
+    <div id="reference-files" class="selected-files" aria-live="polite"></div>
+    <p class="muted">PBJ will study these privately and use what it learns for this project. You will not need to choose or manage a recipe.</p>
+    <div class="wizard-actions"><a class="button secondary" href="/projects/new">Back</a><button class="button" type="submit">Use examples →</button></div>
+  </form>
+  <form class="skip-form" action="/projects/new/references" method="post"><input type="hidden" name="skip" value="true"><button type="submit">Continue without examples</button></form>
+</section>{% endblock %}{% block scripts %}<script>
+(function(){
+  const input=document.getElementById('reference-input');
+  const list=document.getElementById('reference-files');
+  if(!input||!list)return;
+  input.addEventListener('change',function(){
+    const files=Array.from(input.files||[]);
+    list.innerHTML=files.length
+      ? '<div class="selected-files-head"><strong>'+files.length+' reference video'+(files.length===1?'':'s')+' selected</strong></div>'+files.map(function(file){return '<div class="selected-file"><span>▶</span><div><strong>'+file.name.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})+'</strong><small>'+Math.round(file.size/1048576*10)/10+' MB</small></div></div>'}).join('')
+      : '';
+  });
+})();
+</script>{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}New project · PBJ{% endblock %}{% block content %}
+<section class="focused-flow">
+  <a href="/" class="back-link">← Back</a>
+  <p class="step-count">NEW PROJECT · 1 OF 4</p>
+  <h1>Describe the video you want</h1>
+  <p class="flow-copy">Tell us the feeling, pacing, story, platform, or creator style you have in mind.</p>
+  <form class="form prompt-first-form" action="/projects/new/describe" method="post">
+    <label>Project name <span>Optional</span><input name="name" value="{{ draft.name or '' }}" placeholder="Flight day"></label>
+    <label>What are we making?
+      <textarea name="description" rows="8" required placeholder="Make this feel fast, playful and chronological, with a strong opening...">{{ draft.description or '' }}</textarea>
+      <small>Use natural language. PBJ will work out the editing approach behind the scenes.</small>
+    </label>
+    <div class="wizard-actions"><a class="button secondary" href="/">Back</a><button class="button" type="submit">Next →</button></div>
+  </form>
+</section>{% endblock %}

@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Learning from examples · PBJ{% endblock %}{% block content %}
+<section class="production-page"><p class="step-count">PREPARING YOUR DIRECTION</p><div class="production-orb"><span></span><span></span><span></span><b>👀</b></div><h1>Learning from your examples</h1><p class="production-lead">PBJ is understanding the editing language before you add your raw footage.</p>{% with started_at=style.active_started_at or style.updated_at %}{% include "_elapsed_timer.html" %}{% endwith %}{% if style.last_error %}<div class="notice error">{{ style.last_error }}</div><a class="button secondary" href="/projects/new/references">Try different examples</a>{% else %}<p class="muted">This page will continue automatically when the examples are ready.</p>{% endif %}</section>
+{% if not style.last_error %}<script>setTimeout(function(){location.reload()},3000)</script>{% endif %}
+{% endblock %}

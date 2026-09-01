@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Review recipe · PBJ{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">RECIPE LAB · STEP 3 OF 3</p>
+  <h1>Review {{ style.label }}</h1>
+  <p>Recipe {{ style.recipe_version }} · {{ style.recipe_status|title }}</p>
+</section>
+<section class="panel">
+  <div class="wizard-track"><span class="done">1. Upload references</span><span class="done">2. Analyze and compare</span><span class="current">3. Review evidence</span></div>
+  {% if style.last_error %}<div class="notice error">{{ style.last_error }}</div>{% endif %}
+  <div class="profile">
+    <h2>{{ style.recipe.summary }}</h2>
+    <p>{{ style.recipe.structure_summary }}</p>
+    <h3>Creative principles</h3>
+    <ul>{% for item in style.recipe.creative_principles %}<li>{{ item }}</li>{% endfor %}</ul>
+
+    <h3>Evidence-backed editing rules</h3>
+    <div class="trait-grid">
+      {% for rule in style.recipe.rules %}
+      <article>
+        <p class="eyebrow">{{ rule.category|title }} · {{ rule.classification|replace('_',' ')|title }}</p>
+        <strong>{{ rule.name }}</strong>
+        <p>{{ rule.description }}</p>
+        <p><strong>Direction:</strong> {{ rule.instruction }}</p>
+        {% if rule.condition %}<p><strong>When:</strong> {{ rule.condition }}</p>{% endif %}
+        <p><small>Seen in {{ rule.supporting_reference_count }} of {{ rule.total_reference_count }} references · {{ (rule.confidence * 100)|round|int }}% confidence · {{ rule.renderer_support|title }}</small></p>
+        <details>
+          <summary>View {{ rule.evidence|length }} evidence point{{ '' if rule.evidence|length == 1 else 's' }}</summary>
+          <ul>{% for evidence in rule.evidence %}<li>{{ evidence.reference_file_id }} · {{ '%.2f'|format(evidence.start_seconds) }}–{{ '%.2f'|format(evidence.end_seconds) }}s — {{ evidence.observation }}</li>{% endfor %}</ul>
+          {% if rule.conflicts %}<p><strong>Conflicts:</strong> {{ rule.conflicts|join(' · ') }}</p>{% endif %}
+          {% if rule.exceptions %}<p><strong>Exceptions:</strong> {{ rule.exceptions|join(' · ') }}</p>{% endif %}
+        </details>
+      </article>
+      {% endfor %}
+    </div>
+
+    {% if style.recipe.avoid %}<h3>What this approach avoids</h3><ul>{% for item in style.recipe.avoid %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+    {% if style.recipe.uncertainties %}<h3>Still uncertain</h3><ul>{% for item in style.recipe.uncertainties %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+    {% if style.recipe_history %}<p><small>{{ style.recipe_history|length }} approved recipe version{{ '' if style.recipe_history|length == 1 else 's' }} preserved.</small></p>{% endif %}
+  </div>
+
+  {% if learning_state.signal_count %}
+  <div class="workflow-box">
+    <p class="eyebrow">CONTINUOUS LEARNING</p>
+    <h3>{{ learning_state.signal_count }} learning signal{{ '' if learning_state.signal_count == 1 else 's' }} across {{ learning_state.project_count }} project{{ '' if learning_state.project_count == 1 else 's' }}</h3>
+    <p>Signals influence relevant future plans immediately. They become candidate or promoted overlays only after repeated project evidence.</p>
+    {% if learning_state.insights %}<div class="trait-grid">{% for insight in learning_state.insights %}<article><strong>{{ insight.category|title }}</strong><p>{{ insight.status|replace('_',' ')|title }} · {{ insight.project_count }} project{{ '' if insight.project_count == 1 else 's' }}</p><small>{{ (insight.confidence * 100)|round|int }}% confidence · {{ insight.supporting_project_count }} supporting · {{ insight.contradicting_project_count }} contradicting</small></article>{% endfor %}</div>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if not style.approval.approved and request.session.owner %}
+  <form class="form compact" action="/styles/{{ style.style_id }}/revise" method="post">
+    <label>Anything to correct before approval?<textarea name="feedback" rows="3" placeholder="Corrections change the interpretation but do not count as new video evidence."></textarea></label>
+    <button class="button secondary" type="submit">Create revised recipe version</button>
+  </form>
+  <div class="wizard-actions"><a class="button secondary" href="/styles/{{ style.style_id }}/analysis">Back</a><form action="/styles/{{ style.style_id }}/approve" method="post"><button class="button" type="submit">Approve recipe {{ style.recipe_version }} and continue</button></form></div>
+  {% elif not style.approval.approved %}
+  <div class="notice"><strong>This candidate is ready for owner review.</strong> Its evidence is saved, but it cannot guide shared projects until an owner validates this recipe version.</div>
+  <div class="wizard-actions"><a class="button secondary" href="/styles/{{ style.style_id }}/analysis">Back</a><a class="button" href="/styles">Recipe Lab</a></div>
+  {% else %}
+  <div class="notice"><strong>Recipe {{ style.recipe_version }} is validated and frozen.</strong> Future improvements will create a new version without changing projects that already use this one.</div>
+  <div class="wizard-actions"><a class="button secondary" href="/styles/{{ style.style_id }}/analysis">Back</a><a class="button" href="/projects/new">Next: Upload raw footage</a></div>
+  {% endif %}
+  {% if request.session.owner and not style.project_private %}<form action="/styles/{{ style.style_id }}/delete" method="post" onsubmit="return confirm('Remove this recipe from the active library, archive its local record, and delete its provider-hosted copies?');"><button class="danger-button" type="submit">Archive recipe</button></form>{% endif %}
+</section>
+{% endblock %}

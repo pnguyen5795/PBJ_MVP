@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}PBJ · Your AI video editor{% endblock %}{% block content %}
+<section class="hero home-hero">
+  <p class="eyebrow">{{ greeting }}, CREATOR</p>
+  <h1>What should we make today?</h1>
+  <p>Describe the edit. Add examples if you have them. PBJ will build the first cut.</p>
+  <a class="button large" href="/projects/new">Start a new project</a>
+  {% if projects %}<div class="home-project-list">{% for project in projects %}<a href="/projects/{{ project.project_id }}" class="home-project-card"><div><h2>{{ project.name }}</h2><p>{% if project.status == 'rough_cut_ready' %}Revision {{ project.runs|length }} is ready to review{% elif project.status in ['analysis_queued','analyzing_footage'] %}Understanding your footage{% elif project.status in ['rough_cut_queued','planning_rough_cut','rendering_rough_cut'] %}Creating revision {{ project.active_revision or ((project.runs|length)+1) }}{% elif project.status == 'approved' %}Final cut approved{% elif project.status in ['rough_cut_failed','analysis_failed'] %}This edit needs attention{% else %}Continue setting up this project{% endif %}</p></div><span>{% if project.status in ['rough_cut_ready','approved'] %}Ready{% elif project.status in ['analysis_queued','analyzing_footage','rough_cut_queued','planning_rough_cut','rendering_rough_cut'] %}Working{% elif project.status in ['rough_cut_failed','analysis_failed'] %}Attention{% else %}Continue{% endif %}</span></a>{% endfor %}</div>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,15 @@
+{
+  "name": "PBJ",
+  "short_name": "PBJ",
+  "description": "Turn your footage into a style-informed first cut.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6f2b7b",
+  "orientation": "portrait-primary",
+  "icons": [
+    {"src": "/static/icons/pbj-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/static/icons/pbj-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
