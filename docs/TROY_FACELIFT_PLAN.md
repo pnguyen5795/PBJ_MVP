@@ -138,7 +138,7 @@ introduced.
 
 ### Phase 3 — Canonical project creation
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Restyle Describe, optional References, Footage, and Final Details.
 - Preserve resumable supplied-media upload and permission boundaries.
@@ -147,6 +147,30 @@ introduced.
 
 **Gate:** the canonical route sequence and all upload/brief tests pass using real
 PBJ data.
+
+Implemented:
+
+- added a shared mobile New Project header, four-step purple progress treatment,
+  circular back control, restrained centered hierarchy, and bottom-priority
+  black forward actions across all four canonical screens;
+- adapted Describe around Troy's recipe-field composition while keeping the
+  user-facing language natural and PBJ's internal recipe selection invisible;
+- adapted optional References and raw Footage into the supplied-media picker
+  treatment without importing presets, stock media, or generated assets;
+- preserved real reference limits, private-project language, direct resumable
+  upload sessions, the 2 GB batch boundary, sequential mobile upload behavior,
+  source inspection, and device ownership checks;
+- adapted Final Details with a direction recap and horizontally scrollable
+  suggestion chips while keeping the real brief submission contract.
+
+Verification: the complete PBJ suite passes with five additional Phase 3
+facade-boundary tests. The canonical Describe → References → Footage → Final
+Details route sequence and its existing tests remain unchanged. A live 390×844
+walkthrough through Describe, References, and Footage has no horizontal
+overflow or browser warnings; forward actions remain 56 pixels, secondary tap
+targets are at least 44 pixels, and the mobile upload surface retains its
+sequential-worker and 2 GB batch contracts. Final Details is covered through
+the real upload-session route tests without creating disposable project media.
 
 ### Phase 4 — Preparation and Timeline Ready
 

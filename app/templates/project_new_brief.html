@@ -1,14 +1,13 @@
 {% extends "base.html" %}{% block title %}Final details · PBJ{% endblock %}{% block content %}
-<section class="focused-flow">
-  <a href="/projects/new/footage?session_id={{ upload_session.session_id }}" class="back-link">← Back</a>
-  <p class="step-count">NEW PROJECT · 4 OF 4</p>
-  <h1>Anything specific?</h1>
-  <p class="flow-copy">Add requirements for this cut. Leave it blank to give the editor more freedom.</p>
+<section class="pbj-create-flow">
+  <header class="pbj-create-top"><a href="/projects/new/footage?session_id={{ upload_session.session_id }}" class="pbj-back-button" aria-label="Back to Footage">‹</a><span>New Project</span><span class="pbj-create-step">4 of 4</span></header>
+  <div class="pbj-progress" style="--pbj-progress:100%"><span></span></div>
+  <div class="pbj-create-hero"><p class="step-count">FINAL DETAILS</p><h1>Anything specific?</h1><p>Add requirements for this timeline, or leave it open for more creative freedom.</p></div>
   <div class="direction-recap"><span>YOUR DIRECTION</span><p>{{ upload_session.prompt }}</p></div>
-  <form class="form prompt-first-form" action="/projects/new/brief" method="post">
+  <form class="form prompt-first-form pbj-create-form" action="/projects/new/brief" method="post">
     <input type="hidden" name="session_id" value="{{ upload_session.session_id }}">
-    <label>Final details <span>Optional</span><textarea id="specifics" name="specifics" rows="7" placeholder="Keep it around 45 seconds. Open with the takeoff and end on the reaction..."></textarea></label>
+    <label>Final details <span>Optional</span><textarea id="specifics" name="specifics" rows="7" placeholder="Keep it around 45 seconds. Open with the takeoff and end on the reaction…"></textarea></label>
     <div class="prompt-chips"><button type="button" data-insert="Fast opening">Fast opening</button><button type="button" data-insert="Keep it chronological">Chronological</button><button type="button" data-insert="Keep the best reactions">Keep reactions</button><button type="button" data-insert="Keep it about 60 seconds">About 60 sec</button></div>
-    <div class="wizard-actions"><a class="button secondary" href="/projects/new/footage?session_id={{ upload_session.session_id }}">Back</a><button class="button" type="submit">Create cut →</button></div>
+    <div class="wizard-actions"><a class="button secondary" href="/projects/new/footage?session_id={{ upload_session.session_id }}">Back</a><button class="button" type="submit">Let’s Cook</button></div>
   </form>
 </section>{% endblock %}{% block scripts %}<script>document.querySelectorAll('[data-insert]').forEach(function(button){button.addEventListener('click',function(){const field=document.getElementById('specifics');field.value+=(field.value?'\n':'')+button.dataset.insert+'.';field.focus()})})</script>{% endblock %}

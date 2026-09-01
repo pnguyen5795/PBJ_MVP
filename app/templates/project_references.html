@@ -1,19 +1,18 @@
 {% extends "base.html" %}{% block title %}Optional examples · PBJ{% endblock %}{% block content %}
-<section class="focused-flow">
-  <a href="/projects/new" class="back-link">← Back</a>
-  <p class="step-count">NEW PROJECT · 2 OF 4</p>
-  <h1>Have an example? 👀</h1>
-  <p class="flow-copy">Add finished videos that show the editing direction. This step is optional.</p>
-  <form class="panel form reference-project-form" action="/projects/new/references" method="post" enctype="multipart/form-data">
+<section class="pbj-create-flow">
+  <header class="pbj-create-top"><a href="/projects/new" class="pbj-back-button" aria-label="Back to Direction">‹</a><span>New Project</span><span class="pbj-create-step">2 of 4</span></header>
+  <div class="pbj-progress" style="--pbj-progress:50%"><span></span></div>
+  <div class="pbj-create-hero"><p class="step-count">OPTIONAL REFERENCES</p><h1>Show PBJ the vibe</h1><p>Add finished videos that demonstrate the editing direction you want. This step is optional.</p></div>
+  <form class="form reference-project-form pbj-create-form" action="/projects/new/references" method="post" enctype="multipart/form-data">
     <label class="upload-zone compact-upload" for="reference-input">
       <input id="reference-input" class="file-input-overlay" type="file" name="references" accept="video/*" multiple aria-label="Choose optional finished reference videos">
-      <span class="upload-icon">↑</span><strong>Choose reference videos</strong><span class="choose-files">Tap to choose files</span><small>Optional · up to 5 videos · 30 minutes combined</small>
+      <span class="upload-icon">＋</span><strong>Choose reference videos</strong><span class="choose-files">Tap to choose files</span><small>Up to 5 videos · 30 minutes combined</small>
     </label>
     <div id="reference-files" class="selected-files" aria-live="polite"></div>
-    <p class="muted">PBJ will study these privately and use what it learns for this project. You will not need to choose or manage a recipe.</p>
+    <p class="pbj-media-note"><span>🔒</span> PBJ studies these privately for this project. You never need to manage its internal editing knowledge.</p>
     <div class="wizard-actions"><a class="button secondary" href="/projects/new">Back</a><button class="button" type="submit">Use examples →</button></div>
   </form>
-  <form class="skip-form" action="/projects/new/references" method="post"><input type="hidden" name="skip" value="true"><button type="submit">Continue without examples</button></form>
+  <form class="skip-form" action="/projects/new/references" method="post"><input type="hidden" name="skip" value="true"><button type="submit">I don’t have examples</button></form>
 </section>{% endblock %}{% block scripts %}<script>
 (function(){
   const input=document.getElementById('reference-input');

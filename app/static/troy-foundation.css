@@ -405,6 +405,39 @@ textarea.pbj-input {
 .pbj-settings-form label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }.pbj-settings-form label small { color: var(--pbj-text-muted); font-size: 11px; font-weight: 400; }.pbj-settings-form input { padding: 0 14px; }
 .pbj-settings-info h2 { margin: 0 0 20px; font-size: 20px; }.pbj-settings-info > div + div { margin-top: 18px; }.pbj-settings-info p { margin: 4px 0 0; color: var(--pbj-text-muted); font-size: 13px; line-height: 1.45; }.pbj-settings-info > small { display: block; margin-top: 24px; color: var(--pbj-text-secondary); font-size: 11px; line-height: 1.4; }
 
+/* Phase 3: canonical project creation, backed entirely by PBJ routes/state. */
+.pbj-create-flow { width: min(100%, 760px); margin: 0 auto; }
+.pbj-create-top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; margin-bottom: 14px; text-align: center; }
+.pbj-create-top > span:nth-child(2) { font-size: 15px; font-weight: 650; }
+.pbj-create-step { color: var(--pbj-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pbj-create-flow > .pbj-progress { width: calc(100% - 88px); height: 4px; margin: 0 auto 36px; }
+.pbj-create-hero { max-width: 600px; margin: 0 auto 28px; text-align: center; animation: pbj-slide-up .4s var(--pbj-ease); }
+.pbj-create-hero h1 { margin: 0; font-size: clamp(34px, 6vw, 52px); line-height: 1.03; letter-spacing: -.045em; }
+.pbj-create-hero > p:last-child { max-width: 520px; margin: 10px auto 0; color: var(--pbj-text-muted); font-size: 16px; line-height: 1.5; }
+.pbj-create-form { padding: 22px; border: 1px solid rgba(94,62,22,.1); border-radius: var(--pbj-radius-lg); background: rgba(255,255,255,.78); box-shadow: var(--pbj-shadow-sm); }
+.pbj-create-form label { color: var(--pbj-text); font-size: 14px; }
+.pbj-create-form label > span { color: var(--pbj-text-muted); font-weight: 400; }
+.pbj-create-form input, .pbj-create-form textarea { padding: 15px 16px; }
+.pbj-create-form .pbj-recipe-field { min-height: 235px; border: 1px solid rgba(94,62,22,.1); background: color-mix(in srgb, #f2a65a 5%, white); box-shadow: inset 0 3px 6px rgba(94,62,22,.07); font-size: 18px; line-height: 1.5; }
+.pbj-create-form .upload-zone { min-height: 260px !important; border: 1.5px dashed var(--pbj-border-strong); border-radius: var(--pbj-radius-lg); background: rgba(242,242,247,.72); }
+.pbj-create-form .upload-zone:hover, .pbj-create-form .upload-zone.drag-active { border-color: var(--pbj-accent); background: var(--pbj-accent-soft); }
+.pbj-create-form .upload-icon { width: 52px; height: 52px; background: var(--pbj-accent-soft); color: var(--pbj-accent-deep); font-size: 25px; }
+.pbj-create-form .choose-files { min-height: 44px; display: inline-flex; align-items: center; border: 0; border-radius: 22px; padding: 0 18px; background: #000; color: #fff; font: 600 14px var(--pbj-font); }
+.pbj-create-form .selected-files { border-color: var(--pbj-border); border-radius: var(--pbj-radius-md); background: #fff; }
+.pbj-create-form .selected-files-head { background: var(--pbj-surface); }
+.pbj-create-form .selected-file > span, .pbj-create-form .media-icon { background: var(--pbj-accent-soft); color: var(--pbj-accent-deep); }
+.pbj-media-note { display: flex; gap: 7px; margin: 0; color: var(--pbj-text-muted); font-size: 12px; line-height: 1.45; }
+.pbj-create-flow .skip-form button { min-height: 44px; color: var(--pbj-text-muted); font-weight: 500; }
+.pbj-create-media-layout { grid-template-columns: minmax(0, 1fr) 240px; }
+.pbj-create-media-layout .flow-aside { border-radius: var(--pbj-radius-lg); background: rgba(255,255,255,.5); padding: 22px; }
+.pbj-create-media-layout .flow-aside > span { color: var(--pbj-accent); }
+.pbj-create-form .media-row { border: 0; border-radius: var(--pbj-radius-md); background: var(--pbj-surface); }
+.pbj-create-form .media-row em { color: var(--pbj-accent-deep); font-weight: 650; }
+.pbj-create-flow .direction-recap { border: 1px solid color-mix(in srgb, var(--pbj-accent) 18%, transparent); background: var(--pbj-accent-soft); box-shadow: none; }
+.pbj-create-flow .prompt-chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -22px; padding: 2px 22px 7px; scrollbar-width: none; }
+.pbj-create-flow .prompt-chips::-webkit-scrollbar { display: none; }
+.pbj-create-flow .prompt-chips button { flex: 0 0 auto; min-height: 44px; border-color: rgba(94,62,22,.1); background: #fff; color: var(--pbj-text); font-weight: 500; }
+
 @keyframes pbj-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -457,6 +490,18 @@ textarea.pbj-input {
   .pbj-settings-layout { grid-template-columns: 1fr; }
   .pbj-settings-form, .pbj-settings-info { padding: 18px; }
   .pbj-settings-form label > span { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .pbj-create-flow { min-height: calc(100dvh - 154px - var(--pbj-safe-bottom)); }
+  .pbj-create-top { margin-top: -8px; }
+  .pbj-create-flow > .pbj-progress { margin-bottom: 30px; }
+  .pbj-create-hero { margin-bottom: 24px; }
+  .pbj-create-hero h1 { font-size: 34px; }
+  .pbj-create-hero > p:last-child { font-size: 15px; }
+  .pbj-create-form { padding: 18px; }
+  .pbj-create-form .pbj-recipe-field { min-height: 220px; }
+  .pbj-create-form .upload-zone { min-height: 230px !important; }
+  .pbj-create-media-layout { display: block; }
+  .pbj-create-media-layout .flow-aside { display: none; }
+  .pbj-create-flow .wizard-actions { bottom: calc(80px + var(--pbj-safe-bottom)); border-color: var(--pbj-border); background: rgba(255,255,255,.92); }
 }
 
 @media (prefers-reduced-motion: reduce) {
