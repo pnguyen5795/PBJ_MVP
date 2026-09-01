@@ -5,6 +5,35 @@ set -u
 PBJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PBJ_PORTS=(8000 8001 5173)
 stopped=0
+launcher_tty="$(tty 2>/dev/null || true)"
+
+close_launcher_terminal() {
+  if [[ "${TERM_PROGRAM:-}" != "Apple_Terminal" || "$launcher_tty" != /dev/* ]]; then
+    return
+  fi
+
+  # Let this script finish, then close only the Terminal tab that launched it.
+  (
+    sleep 0.3
+    osascript \
+      -e 'on run argv' \
+      -e 'set targetTTY to item 1 of argv' \
+      -e 'tell application "Terminal"' \
+      -e 'repeat with terminalWindow in windows' \
+      -e 'repeat with terminalTab in tabs of terminalWindow' \
+      -e 'if tty of terminalTab is targetTTY then' \
+      -e 'close terminalTab' \
+      -e 'return' \
+      -e 'end if' \
+      -e 'end repeat' \
+      -e 'end repeat' \
+      -e 'end tell' \
+      -e 'end run' \
+      "$launcher_tty" >/dev/null 2>&1
+  ) &!
+}
+
+trap close_launcher_terminal EXIT
 
 stop_process_tree() {
   local parent_pid="$1"
