@@ -71,7 +71,7 @@ visual direction and authority boundaries.
 
 ### Phase 1 — Visual foundation
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Import approved artwork into PBJ-owned static paths.
 - Establish color, type, spacing, radius, shadow, safe-area, and motion tokens.
@@ -81,6 +81,27 @@ visual direction and authority boundaries.
 
 **Gate:** shared components render consistently at 390×844 and existing route
 tests still pass.
+
+**Implemented:**
+
+- Added `app/static/troy-foundation.css` with the approved black/purple tokens,
+  system typography, 8-point spacing, buttons, inputs, cards, back controls,
+  sheets, progress, safe-area behavior, and reduced-motion support.
+- Copied Troy's sandwich logo and four cooking layers byte-for-byte into
+  `app/static/brand/` and recorded their upstream checksums and provenance.
+- Loaded and precached the foundation and artwork in both PBJ shells and the PWA
+  service worker without adding a React runtime.
+- Added PBJ-specific foundation contract tests.
+
+**Verification:** 113 PBJ tests pass. At 390×844, the access surface has no
+horizontal overflow, the primary button is a 56px black pill with a 17px label,
+the input is 56px high with a 14px radius, the cream background is active, and
+the browser reports no console warnings or errors. Every new static asset returns
+HTTP 200.
+
+**Known gap:** individual PBJ screens still use their existing markup and some
+legacy layout selectors. Those are intentionally replaced phase-by-phase starting
+with access, home, projects, and settings in Phase 2.
 
 ### Phase 2 — Access, home, projects, and settings
 

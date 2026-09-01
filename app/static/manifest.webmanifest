@@ -5,8 +5,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#6f2b7b",
+  "background_color": "#fff8f1",
+  "theme_color": "#ffffff",
   "orientation": "portrait-primary",
   "icons": [
     {"src": "/static/icons/pbj-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
