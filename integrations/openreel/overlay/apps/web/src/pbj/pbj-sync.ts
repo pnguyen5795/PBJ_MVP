@@ -49,28 +49,37 @@ export function installPBJSnapshotSync(
 ): () => void {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let dirty = false;
+
   const flush = (preferKeepalive = false) => {
     if (!dirty) return;
     dirty = false;
     if (timeout) clearTimeout(timeout);
     timeout = undefined;
-    void savePBJSnapshot(projection, store.getState().project, fetcher, preferKeepalive).catch((error) => {
+    void savePBJSnapshot(
+      projection,
+      store.getState().project,
+      fetcher,
+      preferKeepalive,
+    ).catch((error) => {
       dirty = true;
       console.error("PBJ could not save the OpenReel project snapshot", error);
     });
   };
+
   const unsubscribe = store.subscribe((state, previous) => {
     if (state.project === previous.project) return;
     dirty = true;
     if (timeout) clearTimeout(timeout);
     timeout = setTimeout(() => flush(), debounceMs);
   });
+
   const handleVisibilityChange = () => {
     if (document.visibilityState === "hidden") flush(true);
   };
   const handlePageHide = () => flush(true);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pagehide", handlePageHide);
+
   return () => {
     if (timeout) clearTimeout(timeout);
     document.removeEventListener("visibilitychange", handleVisibilityChange);

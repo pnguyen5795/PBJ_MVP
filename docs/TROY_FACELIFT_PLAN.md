@@ -283,7 +283,8 @@ user's physical-device walkthrough in Phase 7 and are not represented as passed.
 
 ### Phase 7 — Acceptance and merge readiness
 
-**Status:** Pending
+**Status:** Acceptance candidate prepared September 1, 2026; awaiting explicit
+physical-iPhone acceptance and merge approval
 
 - Complete user walkthrough and visual acceptance.
 - Remove unused imported code and confirm no Troy mock/backend logic remains.
@@ -291,6 +292,26 @@ user's physical-device walkthrough in Phase 7 and are not represented as passed.
 - Create a final facelift checkpoint for review before merging into `main`.
 
 **Gate:** the user explicitly approves the facelift and all required checks pass.
+
+Prepared:
+
+- audited every file changed from `main` and confirmed the branch contains no
+  tracked project data, media, provider keys, `.env`, evaluation checkout, or
+  package installation;
+- confirmed runtime code contains no Troy Studio, mock-project, Clerk,
+  simulated-rendering, alternate-service, or alternate-backend implementation;
+- reconciled the readable OpenReel overlay sources with the tested reproducible
+  patch and retained the pinned OpenReel revision and MIT notice;
+- finalized Troy permission, source paths, asset checksums, exclusions,
+  modifications, and third-party notices;
+- reran the complete PBJ and OpenReel suites, production build, clean patch
+  application, route/authority gates, and representative phone browser checks;
+- recorded the remaining physical-device steps in
+  `docs/FACELIFT_ACCEPTANCE.md` without representing them as passed.
+
+Merge boundary: this branch is ready for the owner's physical-iPhone review.
+Do not mark Phase 7 complete or merge `troy-facelift` into `main` until the owner
+explicitly accepts the visual walkthrough and authorizes the merge.
 
 ## Progress reporting
 

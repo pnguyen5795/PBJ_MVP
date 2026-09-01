@@ -44,5 +44,10 @@ The PBJ owner confirmed permission on September 1, 2026 to use and modify the
 code, design, and artwork in `https://github.com/Swag420Money/PB-J.git` at
 revision `10c8efdf2f2187604a934d082d038db8729a75d9`. The source repository does
 not contain a license file. The approved use is limited to the visual adaptation
-described in `docs/TROY_FACELIFT_PLAN.md`; imported files and modifications must
-be recorded as implementation proceeds.
+described in `docs/TROY_FACELIFT_PLAN.md`. PBJ translated the reviewed visual
+tokens and shared-control patterns into `app/static/troy-foundation.css` and
+copied the approved sandwich logo and four sandwich layers into
+`app/static/brand/`. Exact upstream paths, checksums, PBJ paths, exclusions, and
+modifications are recorded in `docs/third_party_sources.json`. No Troy Studio,
+application state, mock project, Clerk authentication, simulated renderer,
+alternate service, or backend code was imported.
