@@ -1,7 +1,17 @@
 # PBJ Canonical User Flow
 
 **Status:** Required product contract
-**Last updated:** August 30, 2026
+**Last updated:** September 1, 2026
+
+## Troy facelift presentation contract
+
+The `troy-facelift` branch may restyle every PBJ-owned screen using the approved
+iPhone-first visual system documented in `docs/TROY_FACELIFT_PLAN.md`. The route
+order below does not change. Troy's Studio is excluded; Timeline Ready continues
+to hand the project to OpenReel. Black primary actions balanced with purple
+active and progress states are presentation changes, not new product authority.
+Troy's mock state, fake projects, simulated progress, Clerk authentication, and
+alternate backend must not enter this flow.
 
 ## Current project journey
 

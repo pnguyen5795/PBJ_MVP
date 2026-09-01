@@ -7,6 +7,13 @@ one project to rewrite shared knowledge.
 
 ## Current product state
 
+The `troy-facelift` branch contains the approved phased plan to adopt Troy's
+iPhone-first visual system while retaining PBJ's real backend and governed
+OpenReel editor. Black primary actions are balanced with purple highlights and
+progress states. Troy's Studio, mock data, simulated rendering, authentication,
+and alternate backend are explicitly excluded. See
+[docs/TROY_FACELIFT_PLAN.md](docs/TROY_FACELIFT_PLAN.md).
+
 The former PBJ-owned timeline editor has been permanently removed. PBJ currently:
 
 1. captures the desired edit and optional references;

@@ -16,6 +16,14 @@ The timeline—not a rendered MP4—is the authoritative first cut. PBJ hands th
 
 Strengthen Recipe Engine v1 and build a governed PBJ-to-OpenReel handoff. PBJ must continue improving through evidence-backed recipes, multi-reference synthesis, invisible prompt-to-recipe inference, approved-example retrieval, controlled feedback classification, versioning, and measurable initial-to-approved timeline learning.
 
+On the `troy-facelift` branch, PBJ is also adopting the approved iPhone-first
+visual system from Troy's frontend at pinned commit `10c8efd`. This is a visual
+adaptation only: PBJ's backend, canonical routes, real project state, privacy and
+learning boundaries, and OpenReel ownership remain authoritative. Troy's Studio,
+mock logic, alternate backend, fake data, and simulated progress are excluded.
+The phased implementation and acceptance gates are recorded in
+`docs/TROY_FACELIFT_PLAN.md`.
+
 The live preparation journey is documented in `UI_FLOW.md`; the OpenReel isolation boundary is documented in `docs/OPENREEL_ADAPTER_CONTRACT.md`.
 
 Three bounded OpenAI roles support that journey: the Editing Agent creates first timelines and reviewable revisions, the Timeline Repair Agent receives exact deterministic validation failures and may make at most two repair attempts, and the Learning Agent synthesizes reference-backed recipes and classifies approved-outcome evidence. All three currently run on `gpt-5.6-luna` with medium reasoning. They return structured proposals only; application code still owns validation, persistence, governance, approval, and rendering.

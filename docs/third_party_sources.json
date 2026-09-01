@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-31",
+  "updated_at": "2026-09-01",
   "dependencies": [
     {"name": "react", "license": "MIT", "use": "historical retired PBJ editor dependency"},
     {"name": "react-dom", "license": "MIT", "use": "historical retired PBJ editor dependency"},
@@ -59,6 +59,15 @@
       "license": "MIT",
       "status": "adapted_integration_overlay",
       "candidate_use": "OpenReel editor, playback, and compatible existing editing features behind a PBJ-owned adapter; PBJ does not recreate those features, while OpenReel persistence, AI, permissions, generated media, and direct export paths remain non-authoritative or disabled"
+    },
+    {
+      "name": "Troy PB&J Frontend",
+      "repository": "https://github.com/Swag420Money/PB-J.git",
+      "revision": "10c8efdf2f2187604a934d082d038db8729a75d9",
+      "license": "no repository license; owner-confirmed permission",
+      "permission_confirmed_at": "2026-09-01",
+      "status": "approved_visual_source_pending_import",
+      "candidate_use": "iPhone-first visual tokens, layout, shared controls, restrained motion, and sandwich artwork; exclude Studio, mock state, fake projects, Clerk authentication, simulated rendering, alternate services, and backend code"
     }
   ],
   "adapted_sources": [

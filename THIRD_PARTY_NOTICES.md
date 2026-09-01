@@ -37,3 +37,12 @@ The complete MIT notice is preserved in
 `integrations/openreel/LICENSE.openreel`. The reproducible PBJ modifications are
 stored in `integrations/openreel/openreel-pbj.patch` and are applied to the
 pinned source revision by `scripts/setup_openreel.command`.
+
+## Troy PB&J frontend visual source
+
+The PBJ owner confirmed permission on September 1, 2026 to use and modify the
+code, design, and artwork in `https://github.com/Swag420Money/PB-J.git` at
+revision `10c8efdf2f2187604a934d082d038db8729a75d9`. The source repository does
+not contain a license file. The approved use is limited to the visual adaptation
+described in `docs/TROY_FACELIFT_PLAN.md`; imported files and modifications must
+be recorded as implementation proceeds.

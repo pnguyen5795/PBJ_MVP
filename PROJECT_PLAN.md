@@ -153,6 +153,13 @@ The first measured representative edit retained the initial clip identity while 
 
 Release a simple user experience to friends, family, and a small group of selected users. Users can describe the desired edit, optionally upload references, upload footage, revise outputs, and approve results.
 
+The approved `troy-facelift` work precedes broader private-beta expansion. It
+adopts the visual system from Troy's frontend at pinned commit `10c8efd` while
+preserving PBJ's route, backend, media, privacy, learning, and OpenReel contracts.
+Its phased gates are defined in `docs/TROY_FACELIFT_PLAN.md`. Troy's Studio,
+mock state, simulated jobs, Clerk authentication, alternate services, and fake
+projects are not part of PBJ.
+
 The beta exists to test whether people other than the original owner can receive useful results and to collect permissioned evidence that improves recipe creation, matching, planning, and personalization.
 
 User activity may propose learning. It must never silently rewrite shared recipes.
@@ -638,7 +645,12 @@ Milestones A–C have substantial implemented foundations. Milestones D and E ar
 
 ## 20. Immediate next action
 
-Begin measuring initial-to-approved improvement across repeated permissioned projects, then harden the validated OpenReel flow for iPhone touch, memory limits, interruption recovery, and hosted private-beta infrastructure.
+On `troy-facelift`, complete the phased mobile visual adaptation in
+`docs/TROY_FACELIFT_PLAN.md`, beginning with the shared design foundation and
+continuing through real PBJ screens and governed OpenReel continuity. Keep
+measuring initial-to-approved improvement and hardening iPhone touch, memory,
+interruption recovery, and hosted private-beta infrastructure in parallel with
+the visual work.
 
 ## Final product position
 

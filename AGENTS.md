@@ -6,6 +6,13 @@ Read `GOAL.md`, `PROJECT_PLAN.md`, and `UI_FLOW.md` before planning or implement
 
 PB&J is in Recipe Engine v1. Its former PBJ-owned editor was removed on August 30, 2026. The current product prepares a validated first-timeline package while strengthening evidence-backed internal recipes, multi-reference synthesis, versioning, invisible prompt-to-recipe inference, controlled feedback classification, approved-example retrieval, and measurable first-timeline improvement. The combined launcher, OpenReel handoff, supplied-media hydration, snapshot saving/restore, frozen-snapshot export intent, render-receipt validation, backend final-approval learning, and pinned OpenReel user-facing Export & Approve path are implemented and have passed a complete supplied-media browser walkthrough. Representative desktop tool compatibility is verified; the narrow-screen OpenReel shell keeps Preview and a compact native Timeline together, fixes its playhead at center while the padded timeline scrolls beneath it, presents Assets and Inspector in sheets, and exposes existing selected-clip tools in a bottom tray. Pointer-based OpenReel clip move/trim adaptation, desktop-blocker bypass for PBJ sessions, Safari-safe dynamic viewport, lifecycle snapshot flush, authority-revalidated Home Screen last-project resume, and sequential abortable mobile-proxy hydration are implemented, while physical iPhone touch, rotation, memory, interruption timing, and Home Screen PWA acceptance remain pending.
 
+The `troy-facelift` branch is approved to adapt the iPhone-first visual system
+from `Swag420Money/PB-J` commit `10c8efd`. Follow
+`docs/TROY_FACELIFT_PLAN.md`. Import presentation only: exclude Troy's Studio,
+mock data, simulated rendering, Clerk authentication, alternate services, and
+application state. PBJ's route, backend, privacy, learning, and OpenReel
+contracts remain authoritative.
+
 The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, and Learning Agent. Their current default is `gpt-5.6-luna` with medium reasoning. Keep role prompts, output contracts, provenance, and evaluation responsibilities separate even when they share a model and runtime.
 
 ## Product rules
@@ -32,7 +39,7 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 
 - Design the hosted PWA for iPhone first. Desktop is an expanded version of the same flow, not a separate product.
 - Prefer responsive layout, input capability, orientation, and standalone-display detection over user-agent sniffing.
-- Keep the interface simple, premium, restrained, and Apple-like: a predominantly white canvas, purple primary action buttons and accents, one clear primary action, generous spacing, plain language, and minimal visible machinery.
+- Keep the interface simple, premium, restrained, and Apple-like: a warm cream-to-white canvas, black primary action buttons balanced with purple highlights and progress states, one clear primary action, generous spacing, plain language, and minimal visible machinery.
 - Use emojis sparingly as tasteful personality cues on selected headings or celebratory states. Do not place them throughout navigation, every button, technical status, or dense operator views.
 - The temporary private beta may omit conventional accounts. Require a server-validated, case-insensitive access code and remember authorization for seven days using a secure session; never expose access or owner codes in client code or committed files.
 - Keep projects private to the originating device. Shared Recipe Lab knowledge may be visible to beta users, but governance and destructive actions require a separate owner session.
@@ -40,7 +47,7 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 - Show in-app job banners and support opt-in push notifications for installed Home Screen PWAs.
 - Do not reintroduce a PBJ-owned editing interface. Future refinement and **Export & Approve** belong in the governed OpenReel integration and must remain deliberate and confirmed.
 - Do not rebuild or individually bridge editing features already implemented by OpenReel. Adapt the complete OpenReel project to PBJ's initial-handoff, snapshot, media-permission, approval, and learning boundaries; disable incompatible features instead of creating PBJ duplicates.
-- Give every sequential project screen an obvious Back control and one purple, context-specific forward action. Root and terminal states may use truthful equivalents instead of misleading Back or Next labels.
+- Give every sequential project screen an obvious Back control and one black, context-specific forward action, using purple for selected, active, or progress emphasis. Root and terminal states may use truthful equivalents instead of misleading Back or Next labels.
 
 ## Media boundaries
 
