@@ -2,13 +2,16 @@
 {% block title %}Creating your cut · PBJ{% endblock %}
 {% block content %}
 {% set status = project.status %}
-<section class="production-page">
-  <p class="step-count">STEP 4 OF 4</p>
+<section class="pbj-cooking-page">
+  <header class="pbj-cooking-top"><a class="pbj-back-button" href="/" aria-label="Return Home">‹</a><span>Preparing Timeline</span><span></span></header>
 {% if status in ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}
-    <div class="failure-orb">!</div>
-    <h1>We couldn’t finish this cut</h1>
-    <p class="production-lead">Your footage and completed analysis are safe. You can try this step again without starting over.</p>
-    <div class="production-failure panel">
+    <div class="pbj-cooking-failure">
+      <div class="failure-orb">!</div>
+      <p class="eyebrow">PREPARATION PAUSED</p>
+      <h1>We couldn’t finish this cut</h1>
+      <p class="production-lead">Your footage and completed analysis are safe. You can try this step again without starting over.</p>
+    </div>
+    <div class="production-failure pbj-failure-card">
       <strong>What happened</strong>
       <p>{{ project.last_error or 'The editing process stopped before the video was complete.' }}</p>
       {% if status == 'analysis_failed' %}
@@ -26,17 +29,19 @@
       {% if project.last_error_details %}<details><summary>Technical details</summary><p>{{ project.last_error_details.message }}</p></details>{% endif %}
     </div>
   {% else %}
-    <div class="production-orb"><span></span><span></span><span></span><b>✦</b></div>
-    <p class="eyebrow">PREPARING YOUR TIMELINE</p>
-    <h1>Your first edit is cooking 🥪</h1>
-    <p class="production-lead">PBJ is turning {{ project.raw_files|length }} clips into a validated timeline package for OpenReel. No combined video is rendered at this stage.</p>
-    {% with started_at=project.active_started_at or project.updated_at %}{% include "_elapsed_timer.html" %}{% endwith %}
-    <div class="production-stages">
+    <div class="pbj-cooking-body">
+      <div class="pbj-sandwich-build pbj-cooking-sandwich" aria-hidden="true"><img src="/static/brand/sandwich/bottom-bread.png" alt=""><img src="/static/brand/sandwich/peanut-butter.png" alt=""><img src="/static/brand/sandwich/jelly.png" alt=""><img src="/static/brand/sandwich/top-bread.png" alt=""></div>
+      <p class="eyebrow">PREPARING YOUR TIMELINE</p>
+      <h1>Your first edit is cooking</h1>
+      <p class="production-lead">PBJ is turning {{ project.raw_files|length }} clip{{ '' if project.raw_files|length == 1 else 's' }} into a validated timeline package for OpenReel. No combined video is rendered at this stage.</p>
+      {% with started_at=project.active_started_at or project.updated_at %}{% include "_elapsed_timer.html" %}{% endwith %}
+    </div>
+    <div class="production-stages pbj-cooking-stages">
       <div class="stage {{ 'active' if status in ['analysis_queued','analyzing_footage'] else 'done' }}"><i>1</i><span><strong>Understanding your footage</strong><small>Finding actions, dialogue, reactions, and visual moments</small></span></div>
       <div class="stage {{ 'active' if status in ['footage_analyzed','timeline_queued','planning_timeline'] else ('done' if status == 'preparing_proxies' else '') }}"><i>2</i><span><strong>Building and validating the story</strong><small>Selecting, ordering, and checking source ranges</small></span></div>
       <div class="stage {{ 'active' if status == 'preparing_proxies' else '' }}"><i>3</i><span><strong>Preparing the handoff</strong><small>Creating lightweight per-file previews, thumbnails, and waveforms</small></span></div>
     </div>
-    <p class="muted">This page will move forward automatically when your cut is ready.</p>
+    <p class="pbj-cooking-nudge">You can leave this screen. PBJ will keep working and this page will move forward only when the timeline is ready.</p>
   {% endif %}
 </section>
 {% endblock %}

@@ -1,4 +1,4 @@
-const CACHE = "pbj-shell-v9";
+const CACHE = "pbj-shell-v10";
 const SHELL = [
   "/static/app.css",
   "/static/workflow.css",

@@ -438,6 +438,35 @@ textarea.pbj-input {
 .pbj-create-flow .prompt-chips::-webkit-scrollbar { display: none; }
 .pbj-create-flow .prompt-chips button { flex: 0 0 auto; min-height: 44px; border-color: rgba(94,62,22,.1); background: #fff; color: var(--pbj-text); font-weight: 500; }
 
+/* Phase 4: truthful real-job cooking and validated Timeline Ready states. */
+.pbj-cooking-page { width: min(100%, 700px); min-height: calc(100dvh - 128px); margin: 0 auto; display: flex; flex-direction: column; }
+.pbj-cooking-top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; text-align: center; }
+.pbj-cooking-top > span:nth-child(2) { font-size: 15px; font-weight: 650; }
+.pbj-cooking-body { display: flex; flex-direction: column; align-items: center; padding-top: 32px; text-align: center; }
+.pbj-cooking-sandwich { width: 138px; animation: pbj-cooking-float 3.2s ease-in-out infinite; }
+.pbj-cooking-body .eyebrow, .pbj-cooking-body .step-count { margin-top: 24px; }
+.pbj-cooking-body h1, .pbj-cooking-failure h1 { margin: 0; font-size: 36px; line-height: 1.06; letter-spacing: -.04em; }
+.pbj-cooking-body .production-lead, .pbj-cooking-failure .production-lead { max-width: 560px; margin: 10px auto 0; color: var(--pbj-text-muted); font-size: 15px; line-height: 1.5; }
+.pbj-cooking-body .elapsed-timer { margin-top: 20px; border-color: var(--pbj-border); box-shadow: var(--pbj-shadow-sm); }
+.pbj-cooking-stages { width: min(100%, 600px); margin: 30px auto 0; border-color: var(--pbj-border); border-radius: var(--pbj-radius-lg); box-shadow: var(--pbj-shadow-sm); }
+.pbj-cooking-stages .stage.active i { border-color: var(--pbj-accent); background: var(--pbj-accent); color: #fff; box-shadow: 0 0 0 6px color-mix(in srgb, var(--pbj-accent) 13%, transparent); }
+.pbj-cooking-stages .stage.done { color: var(--pbj-accent-deep); }.pbj-cooking-stages .stage.done i { border-color: var(--pbj-accent-soft); background: var(--pbj-accent-soft); }
+.pbj-cooking-nudge { max-width: 520px; margin: 22px auto 0; color: var(--pbj-text-secondary); font-size: 12px; line-height: 1.45; text-align: center; }
+.pbj-cooking-failure { padding-top: 30px; text-align: center; }.pbj-cooking-failure .failure-orb { background: #fff0ee; color: var(--pbj-danger); }.pbj-cooking-failure .eyebrow { color: var(--pbj-danger); }
+.pbj-failure-card { width: min(100%, 600px); margin: 28px auto 0; border: 1px solid var(--pbj-border); border-radius: var(--pbj-radius-lg); background: rgba(255,255,255,.84); box-shadow: var(--pbj-shadow-sm); }.pbj-failure-card > a { color: var(--pbj-text-muted); }
+.pbj-reference-cooking .pbj-cooking-body { flex: 1; justify-content: center; padding-bottom: 40px; }
+@keyframes pbj-cooking-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+
+.pbj-ready-page { width: min(100%, 620px); min-height: calc(100dvh - 128px); margin: 0 auto; display: flex; flex-direction: column; }
+.pbj-ready-card-zone { display: flex; justify-content: center; padding: 18px 0 26px; background: radial-gradient(75% 85% at 50% 10%, var(--pbj-accent-soft), transparent 78%); }
+.pbj-ready-card { position: relative; width: min(100%, 300px); display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 26px 20px 16px; border: 1.5px dashed var(--pbj-border-strong); border-radius: var(--pbj-radius-lg); background: #fff; box-shadow: var(--pbj-shadow-md); animation: pbj-ready-in .5s var(--pbj-ease) both; }
+.pbj-ready-card__brand { color: var(--pbj-text-tertiary); font-size: 10px; font-weight: 800; letter-spacing: .16em; }.pbj-ready-card__mark { width: 72px; height: 72px; margin: 3px 0; object-fit: contain; }.pbj-ready-card > p { margin: 0; font-size: 14px; font-weight: 650; }
+.pbj-ready-stamp { display: flex; flex-direction: column; align-items: center; margin: 12px 0 14px; border: 2px solid var(--pbj-accent); outline: 1px solid var(--pbj-accent); outline-offset: 3px; border-radius: 11px; padding: 8px 22px; color: var(--pbj-accent); transform: rotate(-6deg); }.pbj-ready-stamp strong { font-size: 21px; letter-spacing: .04em; }.pbj-ready-stamp small { font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.pbj-ready-card__footer { width: 100%; display: flex; justify-content: space-between; border-top: 1px dashed var(--pbj-border); padding-top: 10px; color: var(--pbj-text-tertiary); font-size: 9px; font-weight: 650; letter-spacing: .04em; }
+.pbj-ready-copy { text-align: center; }.pbj-ready-copy h1 { margin: 0; font-size: 34px; line-height: 1.05; letter-spacing: -.04em; }.pbj-ready-copy > p:last-child { max-width: 520px; margin: 10px auto 0; color: var(--pbj-text-muted); font-size: 14px; line-height: 1.5; }
+.pbj-ready-actions { width: min(100%, 420px); margin: auto auto 0; padding-top: 24px; display: flex; flex-direction: column; gap: 4px; }
+@keyframes pbj-ready-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+
 @keyframes pbj-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -502,6 +531,17 @@ textarea.pbj-input {
   .pbj-create-media-layout { display: block; }
   .pbj-create-media-layout .flow-aside { display: none; }
   .pbj-create-flow .wizard-actions { bottom: calc(80px + var(--pbj-safe-bottom)); border-color: var(--pbj-border); background: rgba(255,255,255,.92); }
+  .pbj-cooking-page, .pbj-ready-page { min-height: calc(100dvh - 176px - var(--pbj-safe-bottom)); }
+  .pbj-cooking-top { margin-top: -8px; }
+  .pbj-cooking-body { padding-top: 20px; }
+  .pbj-cooking-sandwich { width: 120px; }
+  .pbj-cooking-body h1, .pbj-cooking-failure h1 { font-size: 32px; }
+  .pbj-cooking-stages { margin-top: 24px; padding: 8px 18px; }
+  .pbj-cooking-stages .stage { padding: 14px 0; }
+  .pbj-failure-card { padding: 20px; }
+  .pbj-ready-card-zone { padding-top: 4px; }
+  .pbj-ready-card { max-width: 280px; }
+  .pbj-ready-copy h1 { font-size: 31px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

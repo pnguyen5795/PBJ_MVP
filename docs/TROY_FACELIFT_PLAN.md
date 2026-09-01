@@ -174,7 +174,7 @@ the real upload-session route tests without creating disposable project media.
 
 ### Phase 4 — Preparation and Timeline Ready
 
-**Status:** Pending
+**Status:** Completed September 1, 2026
 
 - Apply the cooking presentation to real footage analysis, timeline planning,
   deterministic validation, and handoff preparation.
@@ -183,6 +183,30 @@ the real upload-session route tests without creating disposable project media.
 
 **Gate:** interruption, retry, error, and successful handoff states remain truthful
 and recoverable.
+
+Implemented:
+
+- adapted optional-reference analysis and full project preparation to Troy's
+  sandwich “cooking” composition using the approved layered artwork;
+- retained PBJ's real elapsed timer and deterministic status-derived stages for
+  footage understanding, story construction/validation, and per-file handoff
+  preparation;
+- explicitly excluded Troy's fake percentage, fake ETA, rotating placeholder
+  narration, simulated completion, cancellation state, and notification mock;
+- restyled analysis, timeline, interruption, and export failure presentation
+  while preserving the real stored error, technical detail, retry, and creative
+  brief recovery paths;
+- adapted Timeline Ready to Troy's stamped-card celebration using only real
+  project metadata, with one black Open in Editor action and a quiet Back link;
+- preserved the validated-timeline prerequisite and canonical OpenReel handoff.
+
+Verification: the complete PBJ suite passes with five additional Phase 4
+facade-boundary tests. Existing route-contract tests continue to verify the
+three preparation stages, interruption recovery, retired-route redirects, and
+OpenReel destination. Live 390×844 checks of real-status timeline planning,
+retryable timeline failure, and Timeline Ready have no horizontal overflow or
+browser warnings. The failure retains its stored error and both recovery paths;
+Timeline Ready exposes exactly one 56-pixel OpenReel action.
 
 ### Phase 5 — OpenReel continuity
 
