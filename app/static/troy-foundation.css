@@ -507,9 +507,7 @@ textarea.pbj-input {
   .workspace-top { background: rgba(255,255,255,.72); border-bottom-color: rgba(229,229,234,.72); }
   .compact-brand .brand-wordmark { color: #000; }
   .privacy-status { color: var(--pbj-text-muted); }
-  .mobile-tabbar { background: rgba(255,255,255,.88); border-top-color: var(--pbj-border); }
-  .mobile-tabbar a.active { color: var(--pbj-accent); }
-  .pbj-home { min-height: calc(100dvh - 176px - var(--pbj-safe-bottom)); }
+  .pbj-home { min-height: calc(100dvh - 104px - var(--pbj-safe-bottom)); }
   .pbj-home__intro { padding-top: 4px; }
   .pbj-home__intro h1 { font-size: 34px; }
   .pbj-home__recents { margin-top: 32px; }
@@ -519,7 +517,7 @@ textarea.pbj-input {
   .pbj-settings-layout { grid-template-columns: 1fr; }
   .pbj-settings-form, .pbj-settings-info { padding: 18px; }
   .pbj-settings-form label > span { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .pbj-create-flow { min-height: calc(100dvh - 154px - var(--pbj-safe-bottom)); }
+  .pbj-create-flow { min-height: calc(100dvh - 82px - var(--pbj-safe-bottom)); }
   .pbj-create-top { margin-top: -8px; }
   .pbj-create-flow > .pbj-progress { margin-bottom: 30px; }
   .pbj-create-hero { margin-bottom: 24px; }
@@ -530,8 +528,8 @@ textarea.pbj-input {
   .pbj-create-form .upload-zone { min-height: 230px !important; }
   .pbj-create-media-layout { display: block; }
   .pbj-create-media-layout .flow-aside { display: none; }
-  .pbj-create-flow .wizard-actions { bottom: calc(80px + var(--pbj-safe-bottom)); border-color: var(--pbj-border); background: rgba(255,255,255,.92); }
-  .pbj-cooking-page, .pbj-ready-page { min-height: calc(100dvh - 176px - var(--pbj-safe-bottom)); }
+  .pbj-create-flow .wizard-actions { bottom: calc(8px + var(--pbj-safe-bottom)); border-color: var(--pbj-border); background: rgba(255,255,255,.92); }
+  .pbj-cooking-page, .pbj-ready-page { min-height: calc(100dvh - 104px - var(--pbj-safe-bottom)); }
   .pbj-cooking-top { margin-top: -8px; }
   .pbj-cooking-body { padding-top: 20px; }
   .pbj-cooking-sandwich { width: 120px; }

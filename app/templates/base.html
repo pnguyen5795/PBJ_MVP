@@ -13,8 +13,8 @@
   <link rel="icon" href="/static/icons/pbj-192.png">
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/workflow.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', path='/mobile-v2.css') }}?v=11">
-  <link rel="stylesheet" href="{{ url_for('static', path='/troy-foundation.css') }}?v=11">
+  <link rel="stylesheet" href="{{ url_for('static', path='/mobile-v2.css') }}?v=12">
+  <link rel="stylesheet" href="{{ url_for('static', path='/troy-foundation.css') }}?v=12">
 </head>
 <body>
 <div class="app-shell">
@@ -33,11 +33,6 @@
     <main>{% block content %}{% endblock %}</main>
   </div>
 </div>
-<nav class="mobile-tabbar" aria-label="Primary navigation">
-  <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}"><span>⌂</span><small>Home</small></a>
-  <a href="/projects" class="{{ 'active' if request.url.path.startswith('/projects') else '' }}"><span>▣</span><small>Projects</small></a>
-  <a href="/more" class="{{ 'active' if request.url.path.startswith('/more') or request.url.path.startswith('/styles') or request.url.path.startswith('/settings') or request.url.path.startswith('/assets') or request.url.path.startswith('/examples') else '' }}"><span>•••</span><small>More</small></a>
-</nav>
 <script>
 document.addEventListener('submit',function(e){const form=e.target;if(!form.matches('form')||form.dataset.noLoading==='true')return;const button=form.querySelector('button[type="submit"]');if(!button||button.disabled)return;button.dataset.originalText=button.textContent;button.disabled=true;button.classList.add('is-loading');button.innerHTML='<span class="button-spinner"></span> Working…';});
 document.querySelectorAll('[data-elapsed-timer]').forEach(function(timer){const output=timer.querySelector('strong');const parsed=Date.parse(timer.dataset.startedAt||'');const started=Number.isFinite(parsed)?parsed:Date.now();function update(){const total=Math.max(0,Math.floor((Date.now()-started)/1000));const hours=Math.floor(total/3600);const minutes=Math.floor((total%3600)/60);const seconds=total%60;output.textContent=(hours?String(hours).padStart(2,'0')+':':'')+String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0')}update();setInterval(update,1000)});

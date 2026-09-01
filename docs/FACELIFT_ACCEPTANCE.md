@@ -22,8 +22,9 @@
 1. Start PBJ with `start_app.command` and open the displayed Wi-Fi address on
    the iPhone.
 2. Confirm Access, Home, Projects, More, and the four New Project screens feel
-   consistent in portrait and landscape; no control should sit under Safari's
-   top or bottom chrome.
+   consistent in portrait and landscape. The old Home / Projects / More bottom
+   bar must be absent, and no remaining control should sit under Safari's top or
+   bottom chrome.
 3. Add PBJ to the Home Screen, launch it there, rotate once in each direction,
    background it, and reopen it. Authorization should remain truthful and the
    current project must revalidate before resuming.

@@ -271,8 +271,8 @@ Implemented:
   Home Screen resume, and the existing accessibility labels and live regions.
 
 Verification: live browser checks pass at 390×844 and 844×390, including a
-visual confirmation that rotation keeps the compact header and bottom
-navigation. PBJ's complete suite passes 138 tests. OpenReel's complete web suite
+visual confirmation that rotation keeps the compact header and then-current
+navigation presentation. PBJ's complete suite passes 138 tests. OpenReel's complete web suite
 passes 863 tests with 7 skipped, and its TypeScript/Vite production build
 succeeds. The reproducible patch applies to the pinned OpenReel revision.
 
@@ -308,6 +308,15 @@ Prepared:
   application, route/authority gates, and representative phone browser checks;
 - recorded the remaining physical-device steps in
   `docs/FACELIFT_ACCEPTANCE.md` without representing them as passed.
+
+Acceptance adjustment requested September 1, 2026:
+
+- removed the shared Home / Projects / More bottom navigation from the rendered
+  shell at every viewport size;
+- reclaimed its reserved safe-area and sticky-action space while retaining the
+  desktop sidebar and each screen's explicit Back and forward actions;
+- advanced the PWA shell cache so installed copies receive the removal rather
+  than retaining the prior cached navigation.
 
 Merge boundary: this branch is ready for the owner's physical-iPhone review.
 Do not mark Phase 7 complete or merge `troy-facelift` into `main` until the owner

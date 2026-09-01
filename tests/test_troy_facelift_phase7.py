@@ -44,6 +44,16 @@ class TroyFaceliftPhase7Tests(unittest.TestCase):
         self.assertIn("Do not mark Phase 7 complete", plan)
         self.assertIn("explicitly accepts", plan)
 
+    def test_shared_shell_has_no_bottom_navigation_or_reserved_bar_space(self):
+        base = self.read("app/templates/base.html")
+        mobile_css = self.read("app/static/mobile-v2.css")
+        foundation = self.read("app/static/troy-foundation.css")
+        self.assertNotIn("mobile-tabbar", base)
+        self.assertNotIn("mobile-tabbar", mobile_css)
+        self.assertNotIn("mobile-tabbar", foundation)
+        self.assertNotIn("padding-bottom:calc(78px", mobile_css)
+        self.assertNotIn("bottom:calc(80px", mobile_css)
+
 
 if __name__ == "__main__":
     unittest.main()

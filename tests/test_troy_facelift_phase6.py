@@ -26,10 +26,10 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
         for asset in ("mobile-v2.css", "troy-foundation.css"):
             self.assertIn(asset, base)
             self.assertIn(asset, access)
-            self.assertIn(f"/static/{asset}?v=11", worker)
-        self.assertGreaterEqual(base.count("?v=11"), 2)
-        self.assertGreaterEqual(access.count("?v=11"), 2)
-        self.assertIn('const CACHE = "pbj-shell-v11"', worker)
+            self.assertIn(f"/static/{asset}?v=12", worker)
+        self.assertGreaterEqual(base.count("?v=12"), 2)
+        self.assertGreaterEqual(access.count("?v=12"), 2)
+        self.assertIn('const CACHE = "pbj-shell-v12"', worker)
 
     def test_reduced_motion_and_touch_safe_controls_remain_available(self):
         foundation = self.read("app/static/troy-foundation.css")
