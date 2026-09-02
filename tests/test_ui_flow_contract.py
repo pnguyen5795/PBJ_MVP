@@ -1,6 +1,8 @@
 import json
+import io
 import tempfile
 import unittest
+import zipfile
 from base64 import b64encode
 from pathlib import Path
 from unittest.mock import patch
@@ -93,9 +95,26 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertNotIn("openreel", response.text.casefold())
         self.assertNotIn("/static/editor/", response.text)
         self.assertIn("Compare with earlier cuts", response.text)
+        self.assertIn("Download analysis data", response.text)
 
         removed = self.client.get("/projects/%s/openreel" % self.project_id)
         self.assertEqual(removed.status_code, 404)
+
+    def test_project_analysis_data_download_contains_saved_json(self):
+        analysis = self.store.project_dir(self.project_id) / "analyses" / "pegasus" / "raw-001.json"
+        self.store.write_json(analysis, {"file_id": "raw-001", "analysis": {"segments": []}})
+        self.store.write_json(self.store.project_dir(self.project_id) / "content_map.json", {"all_segments": []})
+
+        response = self.client.get("/projects/%s/analysis-data/download" % self.project_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/zip")
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            self.assertEqual(
+                set(archive.namelist()),
+                {"footage/pegasus/raw-001.json", "content-map.json", "package-manifest.json"},
+            )
+            saved = json.loads(archive.read("footage/pegasus/raw-001.json"))
+            self.assertEqual(saved["file_id"], "raw-001")
 
     def test_each_completed_cut_has_its_own_playback_page(self):
         history = self.client.get("/projects/%s/cuts" % self.project_id, follow_redirects=False)

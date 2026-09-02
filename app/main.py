@@ -2,11 +2,13 @@ from pathlib import Path
 from typing import List
 from datetime import datetime
 import asyncio
+import io
 import json
 import os
 import re
 import shutil
 import tempfile
+import zipfile
 from threading import Lock
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -1406,6 +1408,53 @@ async def download_timeline_export(project_id: str, export_id: str):
     if export.get("status") != "complete" or not path.exists():
         raise HTTPException(404, "Completed video is not available")
     return FileResponse(path, media_type="video/mp4", filename="%s-%s.mp4" % (project_id, export_id))
+
+
+@app.get("/projects/{project_id}/analysis-data/download")
+async def download_project_analysis_data(project_id: str):
+    """Download project-owned provider evidence without exposing source media."""
+    try:
+        project = store.project(project_id)
+    except (FileNotFoundError, OSError, ValueError):
+        raise HTTPException(404, "Project not found")
+
+    files = []
+    project_analysis_root = store.project_dir(project_id) / "analyses"
+    if project_analysis_root.exists():
+        for path in sorted(project_analysis_root.glob("*/*.json")):
+            files.append((path, "footage/%s/%s" % (path.parent.name, path.name)))
+
+    content_map_path = store.project_dir(project_id) / "content_map.json"
+    if content_map_path.exists():
+        files.append((content_map_path, "content-map.json"))
+
+    try:
+        style = store.style(project["style_id"])
+    except (FileNotFoundError, OSError, ValueError, KeyError):
+        style = {}
+    if style.get("project_private") and style.get("device_id") == project.get("device_id"):
+        reference_root = store.style_dir(project["style_id"]) / "analyses"
+        if reference_root.exists():
+            for path in sorted(reference_root.glob("*/*.json")):
+                files.append((path, "references/%s/%s" % (path.parent.name, path.name)))
+
+    if not files:
+        raise HTTPException(404, "No saved analysis data is available for this project")
+
+    package = io.BytesIO()
+    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path, archive_name in files:
+            archive.write(path, archive_name)
+        archive.writestr("package-manifest.json", json.dumps({
+            "project_id": project_id,
+            "created_at": utc_now(),
+            "contents": [archive_name for _, archive_name in files],
+        }, indent=2))
+    filename = "%s-analysis-data.zip" % safe_name(project.get("name") or project_id)
+    return Response(
+        content=package.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="%s"' % filename},
+    )
 
 
 @app.get("/projects/{project_id}/analysis", response_class=HTMLResponse)

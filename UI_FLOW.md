@@ -40,6 +40,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - `POST /projects/{project_id}/retry` rebuilds either current or legacy saved-plan artifacts with frame-safe boundaries before retrying a failed or incomplete export; failures show their recorded cause rather than a generic dead end.
 - `POST /projects/new/references-retry` retries failed recipe synthesis from saved eligible analysis without requiring a replacement upload.
 - Completed videos download from `/projects/{project_id}/exports/{export_id}/download`.
+- Saved project-owned Twelve Labs evidence and PBJ's combined content map download as one ZIP from `/projects/{project_id}/analysis-data/download`.
 - Every completed render remains independently playable in one version player with Previous/Next navigation and the prompt that produced that cut; approval and revision actions stay attached to the latest cut.
 - Historical `/review`, `/revision`, and `/approval` links resolve into the current rough-cut review experience.
 - `/projects/{project_id}/editor` and `/projects/{project_id}/openreel` do not exist.
