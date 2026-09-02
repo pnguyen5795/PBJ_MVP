@@ -1481,8 +1481,9 @@ async def retry_failed_rough_cut(project_id: str, background_tasks: BackgroundTa
     if project.get("status") in {"timeline_ready", "export_failed"} and TimelineStore(store).exists(project_id):
         timeline = TimelineStore(store).load(project_id)
         latest_run = project.get("latest_run") or {}
-        if latest_run.get("plan_path"):
-            plan = store.read_json(store.resolve_data_path(latest_run["plan_path"]))
+        plan_path = store.resolve_data_path(latest_run["plan_path"]) if latest_run.get("plan_path") else TimelineStore(store).root(project_id) / "initial_edit_plan.json"
+        if plan_path.exists():
+            plan = store.read_json(plan_path)
             rebuilt = timeline_from_edit_plan(project, plan)
             if rebuilt["timeline_hash"] != timeline["timeline_hash"]:
                 timeline = TimelineStore(store).replace_with_ai_revision(
