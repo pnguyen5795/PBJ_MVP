@@ -29,6 +29,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 | Final details | `/projects/{project_id}/brief` | Add optional requirements and start production. |
 | Production | `/projects/{project_id}/production-progress` | Show truthful analysis, planning/validation, and FFmpeg rendering stages. |
 | Rough-cut review | `/projects/{project_id}/ready` | Play the latest completed MP4 and offer Approve or Request Changes. |
+| Analysis results | `/projects/{project_id}/analysis-results` | Optionally inspect each footage file's saved timestamped Twelve Labs findings without interrupting production. |
 | Cut comparison | `/projects/{project_id}/cuts` | Open the newest completed render in the version player. |
 | Individual cut | `/projects/{project_id}/cuts/{export_id}` | Play one preserved cut on its own page. |
 | Approval | `/projects/{project_id}/approval` | Return to the approved cut and expose download/home actions. |
@@ -41,6 +42,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - `POST /projects/new/references-retry` retries failed recipe synthesis from saved eligible analysis without requiring a replacement upload.
 - Completed videos download from `/projects/{project_id}/exports/{export_id}/download`.
 - Saved project-owned Twelve Labs evidence and PBJ's combined content map download as one ZIP from `/projects/{project_id}/analysis-data/download`.
+- The rough-cut review links to a read-only analysis viewer; it does not restore analyzer selection or an approval gate before rendering.
 - Every completed render remains independently playable in one version player with Previous/Next navigation and the prompt that produced that cut; approval and revision actions stay attached to the latest cut.
 - Historical `/review`, `/revision`, and `/approval` links resolve into the current rough-cut review experience.
 - `/projects/{project_id}/editor` and `/projects/{project_id}/openreel` do not exist.

@@ -36,14 +36,16 @@
           </form>
         </details>
         {% if cuts|length > 1 %}<a class="button text wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}
+        <a class="button text wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a>
         <a class="button text wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a>
       </div>
     {% else %}
-      <div class="pbj-ready-actions"><a class="button large wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download video</a>{% if cuts|length > 1 %}<a class="button text wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}<a class="button text wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a><a class="button text wide" href="/">Return Home</a></div>
+      <div class="pbj-ready-actions"><a class="button large wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download video</a>{% if cuts|length > 1 %}<a class="button text wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}<a class="button text wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a><a class="button text wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a><a class="button text wide" href="/">Return Home</a></div>
     {% endif %}
   {% else %}
     <div class="pbj-ready-copy"><p class="eyebrow">ROUGH CUT</p><h1>Your cut needs another try</h1><p>{{ project.last_error or 'The validated timeline is safe, but PBJ does not have a completed video yet.' }}</p></div>
     <form action="/projects/{{ project.project_id }}/retry" method="post"><button class="button large wide" type="submit">Try rendering again</button></form>
+    <a class="button text wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a>
     <a class="button text wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a>
   {% endif %}
 </section>

@@ -1,7 +1,7 @@
 # PB&J Product and Implementation Plan
 
 **Status:** Recipe Engine v1 — automatic FFmpeg rough cuts
-**Last updated:** September 1, 2026
+**Last updated:** September 2, 2026
 **Source of truth:** This document governs product scope, architecture, learning behavior, and implementation priorities.
 
 ## 1. Product goal
@@ -44,6 +44,7 @@ The repository contains the complete proven technical chain:
 
 - finished-reference upload and separate analysis;
 - separate analysis of each raw file;
+- an optional read-only, timestamped footage-analysis viewer plus a downloadable project analysis package;
 - provider-neutral normalized evidence and combined content maps;
 - checksum/purpose/provider/model/prompt/permission-aware analysis reuse;
 - evidence-backed recipe synthesis, immutable approved versions, and pinned project snapshots;

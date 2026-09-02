@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Footage analysis · PBJ{% endblock %}
+{% block content %}
+<section class="pbj-analysis-page pbj-screen-exact">
+  <header class="pbj-analysis-header">
+    <a class="pbj-back-button" href="/projects/{{ project.project_id }}/ready" aria-label="Back to rough cut">‹</a>
+    <div><p class="eyebrow">FOOTAGE ANALYSIS</p><h1>What PBJ found</h1><p>{{ results|length }} video{{ '' if results|length == 1 else 's' }} · {{ segment_count }} timestamped segment{{ '' if segment_count == 1 else 's' }}</p></div>
+  </header>
+  {% if results %}
+    <div class="pbj-analysis-files">
+      {% for result in results %}
+      <article class="pbj-analysis-file">
+        <div class="pbj-analysis-file__title"><div><span>VIDEO {{ loop.index }}</span><h2>{{ result.name }}</h2></div>{% if result.duration_seconds %}<small>{{ '%.1f'|format(result.duration_seconds) }} sec</small>{% endif %}</div>
+        {% if result.analysis.summary %}<p class="pbj-analysis-summary">{{ result.analysis.summary }}</p>{% endif %}
+        {% if result.analysis.story_beats %}<details class="pbj-analysis-details"><summary>Story beats</summary><ul>{% for beat in result.analysis.story_beats %}<li>{{ beat }}</li>{% endfor %}</ul></details>{% endif %}
+        <div class="pbj-analysis-segments">
+          {% for segment in result.analysis.segments or [] %}
+          <section class="pbj-analysis-segment">
+            <div class="pbj-analysis-segment__time">{{ '%.1f'|format(segment.start_seconds) }}–{{ '%.1f'|format(segment.end_seconds) }}s</div>
+            <div class="pbj-analysis-segment__body">
+              <p>{{ segment.visual_description or 'No visual description was returned.' }}</p>
+              {% if segment.transcript %}<blockquote>“{{ segment.transcript }}”</blockquote>{% endif %}
+              <div class="pbj-analysis-tags">{% for role in segment.editorial_roles or [] %}<span>{{ role }}</span>{% endfor %}{% if segment.shot_type %}<span>{{ segment.shot_type }}</span>{% endif %}{% if segment.emotional_tone %}<span>{{ segment.emotional_tone }}</span>{% endif %}{% if segment.quality %}<span>{{ segment.quality }}</span>{% endif %}</div>
+              {% if segment.audio_description %}<small><strong>Audio:</strong> {{ segment.audio_description }}</small>{% endif %}
+            </div>
+          </section>
+          {% else %}<p class="pbj-analysis-empty">No timestamped segments were returned for this video.</p>{% endfor %}
+        </div>
+        {% if result.analysis.editing_observations or result.analysis.uncertainties %}
+        <details class="pbj-analysis-details"><summary>Editing observations and uncertainties</summary>{% for category, observations in (result.analysis.editing_observations or {}).items() %}{% if observations %}<h3>{{ category|replace('_', ' ')|title }}</h3><ul>{% for observation in observations %}<li>{{ observation }}</li>{% endfor %}</ul>{% endif %}{% endfor %}{% if result.analysis.uncertainties %}<h3>Uncertainties</h3><ul>{% for item in result.analysis.uncertainties %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}</details>
+        {% endif %}
+        <details class="pbj-analysis-details pbj-analysis-technical"><summary>Technical details</summary><p>File ID: {{ result.file_id }}{% if result.model %} · Model: {{ result.model }}{% endif %}{% if result.cache_hit %} · Reused matching saved analysis{% endif %}</p></details>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="pbj-analysis-actions"><a class="button wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download all analysis JSON</a><a class="button text wide" href="/projects/{{ project.project_id }}/ready">Back to rough cut</a></div>
+  {% else %}
+    <div class="pbj-analysis-empty-state"><h2>No analysis is available yet</h2><p>PBJ will show timestamped findings here after the footage has been analyzed.</p><a class="button" href="/projects/{{ project.project_id }}">Return to project</a></div>
+  {% endif %}
+</section>
+{% endblock %}

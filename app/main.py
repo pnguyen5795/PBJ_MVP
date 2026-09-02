@@ -1457,6 +1457,33 @@ async def download_project_analysis_data(project_id: str):
     )
 
 
+@app.get("/projects/{project_id}/analysis-results", response_class=HTMLResponse)
+async def project_analysis_results_page(request: Request, project_id: str):
+    try:
+        project = store.project(project_id)
+    except (FileNotFoundError, OSError, ValueError):
+        raise HTTPException(404, "Project not found")
+    names = {item.get("file_id"): item.get("original_name") for item in project.get("raw_files", [])}
+    analyses = store.project_analyses(project_id, project.get("provider"))
+    results = []
+    for record in analyses:
+        analysis = record.get("analysis") or {}
+        results.append({
+            "file_id": record.get("file_id"),
+            "name": names.get(record.get("file_id")) or record.get("file_id") or "Uploaded video",
+            "analysis": analysis,
+            "duration_seconds": record.get("duration_seconds"),
+            "model": record.get("model"),
+            "completed_at": record.get("completed_at"),
+            "cache_hit": bool((record.get("cache") or {}).get("hit")),
+        })
+    results.sort(key=lambda item: item["file_id"] or "")
+    return templates.TemplateResponse(request, "project_analysis_results.html", {
+        "project": project, "results": results,
+        "segment_count": sum(len((item["analysis"].get("segments") or [])) for item in results),
+    })
+
+
 @app.get("/projects/{project_id}/analysis", response_class=HTMLResponse)
 async def project_analysis_page(request: Request, project_id: str):
     return RedirectResponse("/projects/%s" % project_id, status_code=303)
@@ -1469,7 +1496,7 @@ async def project_analysis_progress_page(request: Request, project_id: str):
 
 @app.get("/projects/{project_id}/analysis-review", response_class=HTMLResponse)
 async def project_analysis_review_page(request: Request, project_id: str):
-    return RedirectResponse("/projects/%s" % project_id, status_code=303)
+    return RedirectResponse("/projects/%s/analysis-results" % project_id, status_code=303)
 
 
 @app.get("/projects/{project_id}/rough-cut", response_class=HTMLResponse)

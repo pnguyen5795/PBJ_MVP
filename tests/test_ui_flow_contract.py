@@ -116,6 +116,36 @@ class CanonicalUIFlowTests(unittest.TestCase):
             saved = json.loads(archive.read("footage/pegasus/raw-001.json"))
             self.assertEqual(saved["file_id"], "raw-001")
 
+    def test_read_only_analysis_results_show_timestamped_findings(self):
+        project = self.store.project(self.project_id)
+        project["raw_files"] = [{"file_id": "raw-001", "original_name": "Golf swing.mov"}]
+        self.store.write_json(self.store.project_dir(self.project_id) / "manifest.json", project)
+        self.store.write_json(
+            self.store.project_dir(self.project_id) / "analyses" / "pegasus" / "raw-001.json",
+            {
+                "file_id": "raw-001", "model": "pegasus1.5", "duration_seconds": 12.0,
+                "analysis": {
+                    "summary": "A golfer completes a drive.",
+                    "story_beats": ["Setup", "Swing"],
+                    "segments": [{
+                        "start_seconds": 2.0, "end_seconds": 6.5,
+                        "visual_description": "The golfer swings and follows through.",
+                        "transcript": "Great shot", "audio_description": "Club impact",
+                        "editorial_roles": ["primary action"], "shot_type": "Medium shot",
+                        "emotional_tone": "Focused", "quality": "strong",
+                    }],
+                },
+            },
+        )
+        response = self.client.get("/projects/%s/analysis-results" % self.project_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("What PBJ found", response.text)
+        self.assertIn("Golf swing.mov", response.text)
+        self.assertIn("2.0–6.5s", response.text)
+        self.assertIn("The golfer swings and follows through.", response.text)
+        self.assertIn("Great shot", response.text)
+        self.assertNotIn('name="provider"', response.text)
+
     def test_each_completed_cut_has_its_own_playback_page(self):
         history = self.client.get("/projects/%s/cuts" % self.project_id, follow_redirects=False)
         self.assertEqual(history.status_code, 303)
