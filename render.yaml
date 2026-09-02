@@ -9,7 +9,6 @@ services:
     dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: commit
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: APP_DATA_DIR
         value: /tmp/pbj-data
