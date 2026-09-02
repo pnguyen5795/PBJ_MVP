@@ -112,6 +112,8 @@ All roles currently default to `gpt-5.6-luna` with medium reasoning and retain s
 - Shared Recipe Lab governance requires owner authority and explicit contribution consent.
 - Before broader beta: add durable jobs, authenticated isolation, controlled object storage, encryption, deletion/retention controls, rate limits, and audit-ready authorization.
 
+In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers and stores files on one Render persistent disk. It runs one web process and uses the existing recoverable in-process jobs. It is suitable for controlled demonstrations, not simultaneous users or public distribution.
+
 ## 9. iPhone-first private-beta UX
 
 - Troy's approved presentation is the visual baseline.
@@ -139,6 +141,8 @@ Measure first-cut approval, selected-source retention, duration retention, openi
 ### Stage 4 — Hosted private beta
 
 Add durable jobs, cloud storage, authentication/authorization, consent, deletion, recovery, observability, and push notifications. Test on physical iPhones.
+
+The first Stage 4 checkpoint is a single-instance Render demonstration deployment with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and a persistent disk. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
 
 ### Stage 5 — Public readiness
 
@@ -182,10 +186,10 @@ Proceed only after useful first cuts are consistent, privacy/security gates pass
 
 ## 13. Immediate next actions
 
-1. Complete automated coverage for automatic rendering, explicit approval, and prompt-driven revision.
-2. Run an end-to-end supplied-media walkthrough locally.
-3. Validate portrait and landscape layouts in the iPhone simulator.
-4. Test the complete experience on a physical iPhone.
+1. Deploy the `codex/hosted-demo` configuration to the PBJ Render workspace after plan and disk cost approval.
+2. Enter secrets only in Render and run an end-to-end supplied-media walkthrough against the hosted URL.
+3. Verify restart recovery, persistent project files, access-code protection, and physical-iPhone playback.
+4. Complete durable job and object-storage architecture before inviting multiple users.
 5. Measure quality and revision burden across representative projects.
 
 ## Final product position

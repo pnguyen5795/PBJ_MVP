@@ -29,7 +29,7 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 - Design the hosted PWA for iPhone first; desktop is an expanded version of the same flow.
 - Keep Troy's warm cream-to-white canvas, black primary actions, purple active/progress states, generous spacing, and plain language.
 - The private beta uses a server-validated access code and seven-day secure session. Never expose codes in client or committed files.
-- Keep projects private to the originating device.
+- Keep projects private to the originating device in local mode. When `PBJ_SHARED_WORKSPACE=true`, treat all authorized browsers as one intentionally shared private-demo permission boundary; do not describe it as multi-user isolation.
 - Accept resumable upload batches up to 2 GB and do not proxy large video bodies through the web process.
 - Show truthful job progress and failures.
 - Do not reintroduce a manual timeline editor. Users watch rendered versions, approve, or request changes in natural language.
@@ -58,3 +58,5 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 Update `GOAL.md`, `README.md`, `PROJECT_PLAN.md`, and this file whenever a decision materially changes the goal, learning policy, media boundary, UX, or stage gate. Update `UI_FLOW.md` and route-contract tests together for flow changes. Preserve the distinction between implemented and planned behavior.
 
 Keep external visual-source provenance pinned and documented. Do not restore retired analyzer selection, manual rough-cut, A/B comparison, OpenReel, or a PBJ-owned timeline editor without an explicit new product decision and matching governing-document changes.
+
+The `codex/hosted-demo` branch packages the current app as one Dockerized Render web service with FFmpeg and one persistent disk. This checkpoint remains single-instance and uses recoverable in-process jobs; durable workers, object storage, and multi-user accounts are not yet implemented.

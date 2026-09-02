@@ -107,6 +107,11 @@ PUBLIC_PATHS = {"/access", "/manifest.webmanifest", "/service-worker.js", "/heal
 
 
 def device_id(request: Request) -> str:
+    if settings.shared_workspace:
+        # A deliberately single-user hosted demo: every authorized browser
+        # shares one permission boundary without introducing user accounts.
+        request.session["device_id"] = settings.shared_workspace_id
+        return settings.shared_workspace_id
     value = request.session.get("device_id")
     if not value:
         value = "device-" + os.urandom(12).hex()
@@ -127,6 +132,13 @@ def visible_projects(request: Request):
     current = device_id(request)
     return [item for item in store.list_projects()
             if item.get("device_id") == current or (not item.get("device_id") and is_owner(request))]
+
+
+def upload_temp_dir(prefix: str) -> Path:
+    """Create request-scoped upload staging in PBJ's configured data area."""
+    parent = settings.data_dir / "tmp"
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
 
 
 @app.middleware("http")
@@ -271,12 +283,16 @@ async def styles_library(request: Request):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, saved: bool = False):
     require_owner(request)
-    return templates.TemplateResponse(request, "settings.html", {"readiness": readiness(), "saved": saved})
+    return templates.TemplateResponse(request, "settings.html", {
+        "readiness": readiness(), "saved": saved, "hosted_mode": settings.hosted_mode,
+    })
 
 
 @app.post("/settings")
 async def update_settings(request: Request, openai_key: str = Form(""), gemini_key: str = Form(""), twelve_labs_key: str = Form("")):
     require_owner(request)
+    if settings.hosted_mode:
+        raise HTTPException(403, "Hosted connections are managed securely in Render.")
     save_api_keys({"OPENAI_API_KEY": openai_key, "GEMINI_API_KEY": gemini_key, "TWELVE_LABS_API_KEY": twelve_labs_key})
     return RedirectResponse("/settings?saved=true", status_code=303)
 
@@ -320,7 +336,7 @@ async def create_style(
         raise HTTPException(400, "Confirm that these videos may be used as a shared Recipe Lab contribution.")
     if not 1 <= len(references) <= 5:
         raise HTTPException(400, "Upload between 1 and 5 reference videos.")
-    temp_dir = Path(tempfile.mkdtemp(prefix="pbj-recipe-references-"))
+    temp_dir = upload_temp_dir("pbj-recipe-references-")
     paths = []
     batch_bytes = 0
     try:
@@ -563,7 +579,7 @@ async def save_project_references(
     references = [item for item in references if item.filename]
     if not 1 <= len(references) <= 5:
         raise HTTPException(400, "Choose up to five finished reference videos.")
-    temp_dir = Path(tempfile.mkdtemp(prefix="pbj-project-references-"))
+    temp_dir = upload_temp_dir("pbj-project-references-")
     paths = []
     batch_bytes = 0
     try:
@@ -900,7 +916,7 @@ async def create_project(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     style_id = recipe_match["selected_recipe_id"]
-    temp_dir = Path(tempfile.mkdtemp(prefix="pbj-project-footage-"))
+    temp_dir = upload_temp_dir("pbj-project-footage-")
     paths = []
     batch_bytes = 0
     try:

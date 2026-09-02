@@ -21,7 +21,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 
 | State | Canonical route | Required outcome |
 |---|---|---|
-| Private access | `/access` | Authorize the device for seven days. |
+| Private access | `/access` | Authorize the browser for seven days. In hosted-demo mode, authorized browsers enter the same private workspace. |
 | Home | `/` | Resume work or start a project. |
 | Describe | `/projects/new` | Capture the desired edit in natural language. |
 | References | `/projects/new/references` | Optionally add finished examples or continue. |
@@ -58,5 +58,6 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - Approval remains separate from successful rendering and is the only positive outcome signal.
 - The shared shell has no persistent bottom navigation bar.
 - Every sequential screen has an obvious Back action and one context-specific primary action where truthful.
+- Local mode keeps projects isolated to their originating device. Explicit hosted-demo mode maps every authorized browser to one shared private workspace; it is not a multi-user beta.
 
 Any intentional flow change requires matching updates to this file, `PROJECT_PLAN.md`, live routes/templates, and route-contract tests.

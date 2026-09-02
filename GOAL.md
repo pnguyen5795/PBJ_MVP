@@ -20,11 +20,13 @@ Restore and harden the proven Twelve Labs → OpenAI → validated timeline → 
 
 Three bounded OpenAI roles support the journey: the Editing Agent plans cuts, the Timeline Repair Agent receives exact validation failures and gets at most two attempts, and the Learning Agent classifies reference and approved-outcome evidence. Agents return structured proposals only; application code owns validation, persistence, rendering, approval, and governance.
 
+The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. This is not multi-user release architecture.
+
 ## Delivery path
 
 1. Operate the complete automatic first-cut and revision loop locally.
 2. Measure first-cut quality and revision burden across approved projects.
-3. Complete hosted storage, durable jobs, privacy, security, and recovery.
+3. Validate the single-workspace hosted demo, then complete durable jobs, private object storage, identity, privacy, security, and recovery.
 4. Run a controlled iPhone-first PWA beta.
 5. Prepare public release only after documented quality and safety gates pass.
 

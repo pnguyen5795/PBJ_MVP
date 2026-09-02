@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from base64 import b64encode
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -243,6 +244,23 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.set_session(owner=True, device_id="second-device")
         response = self.client.get("/styles/%s" % private["style_id"])
         self.assertEqual(response.status_code, 404)
+
+    def test_hosted_shared_workspace_uses_one_private_identity(self):
+        hosted = replace(
+            settings, hosted_mode=True, shared_workspace=True,
+            shared_workspace_id="pbj-private-workspace",
+        )
+        self.store.update_project(self.project_id, device_id="pbj-private-workspace")
+        with patch.object(main_module, "settings", hosted):
+            self.set_session(owner=False, device_id="different-browser")
+            response = self.client.get("/projects/%s/ready" % self.project_id)
+        self.assertEqual(response.status_code, 200)
+
+    def test_hosted_workspace_does_not_accept_secrets_in_the_app(self):
+        hosted = replace(settings, hosted_mode=True)
+        with patch.object(main_module, "settings", hosted):
+            response = self.client.post("/settings", data={"openai_key": "not-saved"})
+        self.assertEqual(response.status_code, 403)
 
     def test_normal_project_flow_does_not_expose_analyzer_selection(self):
         self.client.cookies.clear()

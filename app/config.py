@@ -34,6 +34,9 @@ class Settings:
     session_secret: str = os.getenv("PBJ_SESSION_SECRET", "pbj-local-development-only")
     session_days: int = 7
     max_upload_batch_bytes: int = 2 * 1024 * 1024 * 1024
+    hosted_mode: bool = env_flag("PBJ_HOSTED_MODE")
+    shared_workspace: bool = env_flag("PBJ_SHARED_WORKSPACE")
+    shared_workspace_id: str = os.getenv("PBJ_SHARED_WORKSPACE_ID", "pbj-private-workspace")
 
     @property
     def templates_dir(self) -> Path:
@@ -46,9 +49,14 @@ class Settings:
 
 settings = Settings()
 
+if settings.hosted_mode and not settings.access_code:
+    raise RuntimeError("PBJ_ACCESS_CODE is required when PBJ_HOSTED_MODE=true.")
+
 
 def save_local_settings(values):
     """Update only explicitly permitted entries in the ignored local .env."""
+    if settings.hosted_mode:
+        raise RuntimeError("Hosted secrets must be changed in the Render dashboard.")
     allowed = (
         "OPENAI_API_KEY", "GEMINI_API_KEY", "TWELVE_LABS_API_KEY",
         "PBJ_ACCESS_CODE", "PBJ_OWNER_CODE", "PBJ_SESSION_SECRET", "PBJ_HTTPS_ONLY",
