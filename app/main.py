@@ -618,6 +618,26 @@ async def project_references_progress(request: Request):
     return templates.TemplateResponse(request, "project_references_progress.html", {"style": style})
 
 
+@app.post("/projects/new/references-retry")
+async def retry_project_reference_analysis(request: Request, background_tasks: BackgroundTasks):
+    draft = request.session.get("project_draft") or {}
+    style_id = draft.get("style_id")
+    if not style_id:
+        return RedirectResponse("/projects/new/references", status_code=303)
+    try:
+        style = store.style(style_id)
+    except FileNotFoundError:
+        return RedirectResponse("/projects/new/references", status_code=303)
+    if style.get("status") in {"analysis_queued", "analyzing_references"}:
+        raise HTTPException(409, "Reference analysis is already running")
+    provider = preferred_provider()
+    if not PROVIDERS[provider]().readiness().configured or not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(400, "Connect video understanding and OpenAI before trying again")
+    store.update_style(style_id, status="analysis_queued", last_error=None, last_error_details=None, active_started_at=utc_now())
+    background_tasks.add_task(_run_project_reference_analysis, style_id, provider)
+    return RedirectResponse("/projects/new/references-progress", status_code=303)
+
+
 @app.get("/projects/new/saved-style", response_class=HTMLResponse)
 async def choose_saved_style(request: Request):
     # Recipe selection is internal infrastructure. Keep old bookmarks from

@@ -53,6 +53,8 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
         self.assertIn("style.last_error", template)
         self.assertIn("location.reload()", template)
         self.assertIn("Try different examples", template)
+        self.assertIn("Try this analysis again", template)
+        self.assertIn("/projects/new/references-retry", template)
         self.assertIn("real analysis is ready", template)
 
 
