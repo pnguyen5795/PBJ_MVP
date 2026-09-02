@@ -20,7 +20,7 @@ Restore and harden the proven Twelve Labs → OpenAI → validated timeline → 
 
 Three bounded OpenAI roles support the journey: the Editing Agent plans cuts, the Timeline Repair Agent receives exact validation failures and gets at most two attempts, and the Learning Agent classifies reference and approved-outcome evidence. Agents return structured proposals only; application code owns validation, persistence, rendering, approval, and governance.
 
-The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. This is not multi-user release architecture.
+The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. The first deployment uses disposable free-tier storage for smoke testing only; it is not multi-user or durable release architecture.
 
 ## Delivery path
 

@@ -3,21 +3,16 @@ services:
     name: pbj-private-demo
     runtime: docker
     region: oregon
-    plan: standard
+    plan: free
     branch: codex/hosted-demo
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: commit
-    numInstances: 1
     maxShutdownDelaySeconds: 30
-    disk:
-      name: pbj-data
-      mountPath: /var/data
-      sizeGB: 10
     envVars:
       - key: APP_DATA_DIR
-        value: /var/data
+        value: /tmp/pbj-data
       - key: PBJ_HOSTED_MODE
         value: "true"
       - key: PBJ_SHARED_WORKSPACE

@@ -112,7 +112,7 @@ All roles currently default to `gpt-5.6-luna` with medium reasoning and retain s
 - Shared Recipe Lab governance requires owner authority and explicit contribution consent.
 - Before broader beta: add durable jobs, authenticated isolation, controlled object storage, encryption, deletion/retention controls, rate limits, and audit-ready authorization.
 
-In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers and stores files on one Render persistent disk. It runs one web process and uses the existing recoverable in-process jobs. It is suitable for controlled demonstrations, not simultaneous users or public distribution.
+In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers. Its initial free-tier smoke test uses ephemeral storage, so every upload and result is disposable and may disappear after a restart or deploy. It runs one web process and uses the existing in-process jobs. It is suitable for controlled testing, not important media, simultaneous users, or public distribution.
 
 ## 9. iPhone-first private-beta UX
 
@@ -142,7 +142,7 @@ Measure first-cut approval, selected-source retention, duration retention, openi
 
 Add durable jobs, cloud storage, authentication/authorization, consent, deletion, recovery, observability, and push notifications. Test on physical iPhones.
 
-The first Stage 4 checkpoint is a single-instance Render demonstration deployment with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and a persistent disk. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
+The first Stage 4 checkpoint is a free Render smoke test with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and explicitly disposable storage. After validation, upgrade compute and attach persistent storage before retaining real projects. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
 
 ### Stage 5 — Public readiness
 
@@ -186,9 +186,9 @@ Proceed only after useful first cuts are consistent, privacy/security gates pass
 
 ## 13. Immediate next actions
 
-1. Deploy the `codex/hosted-demo` configuration to the PBJ Render workspace after plan and disk cost approval.
+1. Deploy the free `codex/hosted-demo` smoke-test configuration to the PBJ Render workspace using only disposable sample footage.
 2. Enter secrets only in Render and run an end-to-end supplied-media walkthrough against the hosted URL.
-3. Verify restart recovery, persistent project files, access-code protection, and physical-iPhone playback.
+3. Verify access-code protection and physical-iPhone playback, then upgrade compute and attach storage before testing persistence or important projects.
 4. Complete durable job and object-storage architecture before inviting multiple users.
 5. Measure quality and revision burden across representative projects.
 

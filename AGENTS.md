@@ -59,4 +59,4 @@ Update `GOAL.md`, `README.md`, `PROJECT_PLAN.md`, and this file whenever a decis
 
 Keep external visual-source provenance pinned and documented. Do not restore retired analyzer selection, manual rough-cut, A/B comparison, OpenReel, or a PBJ-owned timeline editor without an explicit new product decision and matching governing-document changes.
 
-The `codex/hosted-demo` branch packages the current app as one Dockerized Render web service with FFmpeg and one persistent disk. This checkpoint remains single-instance and uses recoverable in-process jobs; durable workers, object storage, and multi-user accounts are not yet implemented.
+The `codex/hosted-demo` branch packages the current app as one Dockerized Render web service with FFmpeg. Its initial free-tier configuration uses ephemeral storage and disposable sample media only. Upgrade compute and attach persistent storage before keeping real projects. Durable workers, object storage, and multi-user accounts are not yet implemented.
