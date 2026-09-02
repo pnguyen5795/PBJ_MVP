@@ -81,7 +81,9 @@ class CanonicalUIFlowTests(unittest.TestCase):
     def test_rough_cut_ready_shows_video_approval_and_revision(self):
         response = self.client.get("/projects/%s/ready" % self.project_id)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Your first cut is ready", response.text)
+        self.assertIn("Your revised cut is ready", response.text)
+        self.assertIn("REVISED CUT READY · CUT 2", response.text)
+        self.assertIn("applied your feedback", response.text)
         self.assertIn("Approve this cut", response.text)
         self.assertIn("Request changes", response.text)
         self.assertIn("<video", response.text)
@@ -115,7 +117,7 @@ class CanonicalUIFlowTests(unittest.TestCase):
     def test_legacy_approval_redirects_to_ready(self):
         response = self.client.get("/projects/%s/approval" % self.project_id)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Your first cut is ready", response.text)
+        self.assertIn("Your revised cut is ready", response.text)
 
     def test_approval_requires_explicit_confirmation(self):
         response = self.client.post(

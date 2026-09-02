@@ -1074,6 +1074,7 @@ async def project_ready_page(request: Request, project_id: str):
     cuts = TimelineExportService(store).records(project_id, completed_only=True)
     return templates.TemplateResponse(request, "project_ready.html", {
         "project": project, "export": project.get("latest_export") or {}, "cuts": cuts,
+        "cut_number": len(cuts),
     })
 
 

@@ -7,9 +7,19 @@
       <video controls playsinline preload="metadata" src="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download"></video>
     </div>
     <div class="pbj-ready-copy">
-      <p class="eyebrow">{{ 'APPROVED CUT' if project.status == 'approved' else 'ROUGH CUT READY' }}</p>
-      <h1>{{ 'This cut is approved' if project.status == 'approved' else 'Your first cut is ready' }}</h1>
-      <p>{{ 'PBJ saved this successful outcome as private project learning evidence.' if project.status == 'approved' else 'Watch the complete video. Approve it if it is finished, or tell PBJ exactly what should change.' }}</p>
+      {% if project.status == 'approved' %}
+        <p class="eyebrow">CUT {{ cut_number }} APPROVED</p>
+        <h1>{{ 'Your first cut is approved' if cut_number == 1 else 'Your revised cut is approved' }}</h1>
+        <p>PBJ saved Cut {{ cut_number }} as the successful project outcome and kept every earlier render available for comparison.</p>
+      {% elif cut_number == 1 %}
+        <p class="eyebrow">FIRST ROUGH CUT READY</p>
+        <h1>Your first cut is ready</h1>
+        <p>Watch the complete video. Approve it if it is finished, or tell PBJ exactly what should change.</p>
+      {% else %}
+        <p class="eyebrow">REVISED CUT READY · CUT {{ cut_number }}</p>
+        <h1>Your revised cut is ready</h1>
+        <p>Watch Cut {{ cut_number }} to see how PBJ applied your feedback. Approve this version if it is finished, or request another revision.</p>
+      {% endif %}
     </div>
     {% if project.status != 'approved' %}
       <div class="pbj-ready-actions">
