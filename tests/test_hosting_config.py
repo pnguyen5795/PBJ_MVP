@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 class HostedDemoConfigTests(unittest.TestCase):
     def test_blueprint_is_free_and_has_no_paid_disk(self):
         blueprint = (ROOT / "render.yaml").read_text()
+        self.assertIn("name: pbj", blueprint)
         self.assertIn("plan: free", blueprint)
         self.assertNotIn("disk:", blueprint)
         self.assertIn("value: /tmp/pbj-data", blueprint)

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pbj-private-demo
+    name: pbj
     runtime: docker
     region: oregon
     plan: free
