@@ -1,9 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Timeline ready · PBJ{% endblock %}
+{% block title %}Rough cut ready · PBJ{% endblock %}
 {% block content %}
 <section class="pbj-ready-page">
-  <div class="pbj-ready-card-zone"><div class="pbj-ready-card"><span class="pbj-ready-card__brand">PBJ</span><img src="/static/brand/sandwich-logo.png" alt="" class="pbj-ready-card__mark"><p>{{ project.raw_files|length }} clip{{ '' if project.raw_files|length == 1 else 's' }} · {{ project.target_duration_seconds }} sec target</p><div class="pbj-ready-stamp"><strong>READY</strong><small>VALIDATED TIMELINE</small></div><div class="pbj-ready-card__footer"><span>PROJECT</span><span>{{ project.project_id[-6:]|upper }}</span></div></div></div>
-  <div class="pbj-ready-copy"><p class="eyebrow">TIMELINE READY</p><h1>Your clips are prepared</h1><p>PBJ created and validated your first timeline. Open it in OpenReel to refine the complete project with its editing tools. Your latest valid project snapshot restores automatically.</p></div>
-  <div class="pbj-ready-actions"><a class="button large wide" href="/projects/{{ project.project_id }}/openreel">Open in Editor</a><a class="button text wide" href="/projects/{{ project.project_id }}/brief">Back to creative brief</a></div>
+  {% if export.status == 'complete' %}
+    <div class="pbj-roughcut-player">
+      <video controls playsinline preload="metadata" src="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download"></video>
+    </div>
+    <div class="pbj-ready-copy">
+      <p class="eyebrow">{{ 'APPROVED CUT' if project.status == 'approved' else 'ROUGH CUT READY' }}</p>
+      <h1>{{ 'This cut is approved' if project.status == 'approved' else 'Your first cut is ready' }}</h1>
+      <p>{{ 'PBJ saved this successful outcome as private project learning evidence.' if project.status == 'approved' else 'Watch the complete video. Approve it if it is finished, or tell PBJ exactly what should change.' }}</p>
+    </div>
+    {% if project.status != 'approved' %}
+      <div class="pbj-ready-actions">
+        <form action="/projects/{{ project.project_id }}/approve" method="post">
+          <input type="hidden" name="confirmation" value="approve">
+          <button class="button large wide" type="submit">Approve this cut</button>
+        </form>
+        <details class="pbj-revision-panel">
+          <summary>Request changes</summary>
+          <form action="/projects/{{ project.project_id }}/revise" method="post">
+            <label for="feedback">What should PBJ change?</label>
+            <textarea id="feedback" name="feedback" rows="5" required placeholder="Example: Start with the swing, shorten the setup, and keep more of the reaction at the end."></textarea>
+            <button class="button wide" type="submit">Create a new version</button>
+          </form>
+        </details>
+      </div>
+    {% else %}
+      <div class="pbj-ready-actions"><a class="button large wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download video</a><a class="button text wide" href="/">Return Home</a></div>
+    {% endif %}
+  {% else %}
+    <div class="pbj-ready-copy"><p class="eyebrow">ROUGH CUT</p><h1>Your cut needs another try</h1><p>The validated timeline is safe, but PBJ does not have a completed video yet.</p></div>
+    <form action="/projects/{{ project.project_id }}/retry" method="post"><button class="button large wide" type="submit">Try rendering again</button></form>
+  {% endif %}
 </section>
 {% endblock %}

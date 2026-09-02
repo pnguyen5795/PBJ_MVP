@@ -34,13 +34,13 @@ class TimelinePhaseZeroTests(TestCase):
         route_paths = {getattr(route, "path", "") for route in app.routes}
         self.assertNotIn("/projects/{project_id}/editor", route_paths)
         self.assertIn("/projects/{project_id}/ready", route_paths)
-        self.assertIn("/projects/{project_id}/openreel", route_paths)
+        self.assertNotIn("/projects/{project_id}/openreel", route_paths)
 
-    def test_runtime_launcher_starts_pbj_and_openreel(self):
+    def test_runtime_launcher_starts_only_pbj(self):
         launcher = (ROOT_DIR / "start_app.command").read_text().casefold()
         self.assertIn("uvicorn app.main:app", launcher)
-        self.assertIn("@openreel/web dev", launcher)
-        self.assertIn("openreel_port=5173", launcher)
+        self.assertNotIn("openreel", launcher)
+        self.assertNotIn("pnpm", launcher)
         self.assertIn("trap cleanup", launcher)
         self.assertTrue(os.access(ROOT_DIR / "start_app.command", os.X_OK))
 

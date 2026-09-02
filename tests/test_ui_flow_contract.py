@@ -44,7 +44,11 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.store.update_project(self.project_id, status="rough_cut_ready", runs=[run], latest_run=run)
         timeline = empty_timeline(self.project_id, [])
         TimelineStore(self.store).initialize(self.project_id, timeline)
-        self.store.update_project(self.project_id, status="timeline_ready")
+        export = {
+            "export_id": "export-flow-test", "status": "complete",
+            "timeline_path": "projects/%s/timeline/current.json" % self.project_id,
+        }
+        self.store.update_project(self.project_id, status="timeline_ready", latest_export=export)
         self.store_patch = patch.object(main_module, "store", self.store)
         self.store_patch.start()
         self.client = TestClient(main_module.app)
@@ -62,23 +66,18 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.store_patch.stop()
         self.temp.cleanup()
 
-    def test_timeline_ready_hands_the_project_to_openreel(self):
+    def test_rough_cut_ready_shows_video_approval_and_revision(self):
         response = self.client.get("/projects/%s/ready" % self.project_id)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Your clips are prepared", response.text)
-        self.assertIn("/projects/%s/openreel" % self.project_id, response.text)
-        self.assertIn("Open in Editor", response.text)
+        self.assertIn("Your first cut is ready", response.text)
+        self.assertIn("Approve this cut", response.text)
+        self.assertIn("Request changes", response.text)
+        self.assertIn("<video", response.text)
+        self.assertNotIn("openreel", response.text.casefold())
         self.assertNotIn("/static/editor/", response.text)
 
-        handoff = self.client.get(
-            "/projects/%s/openreel" % self.project_id,
-            follow_redirects=False,
-        )
-        self.assertEqual(handoff.status_code, 303)
-        self.assertEqual(
-            handoff.headers["location"],
-            "http://testserver:5173/?pbjProject=%s" % self.project_id,
-        )
+        removed = self.client.get("/projects/%s/openreel" % self.project_id)
+        self.assertEqual(removed.status_code, 404)
 
     def test_legacy_review_and_revision_redirect_to_ready(self):
         for suffix in ("review", "revision"):
@@ -89,21 +88,21 @@ class CanonicalUIFlowTests(unittest.TestCase):
     def test_legacy_approval_redirects_to_ready(self):
         response = self.client.get("/projects/%s/approval" % self.project_id)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Your clips are prepared", response.text)
+        self.assertIn("Your first cut is ready", response.text)
 
-    def test_only_the_latest_completed_revision_can_be_approved(self):
+    def test_approval_requires_explicit_confirmation(self):
         response = self.client.post(
             "/projects/%s/approve" % self.project_id,
-            data={"run_id": "run-20260827-000000"},
+            data={},
         )
-        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.status_code, 400)
 
     def test_processing_copy_distinguishes_timeline_stages(self):
         self.store.update_project(self.project_id, status="planning_timeline")
         response = self.client.get("/projects/%s/production-progress" % self.project_id)
-        self.assertIn("PREPARING YOUR TIMELINE", response.text)
+        self.assertIn("CREATING YOUR ROUGH CUT", response.text)
         self.assertIn("Building and validating the story", response.text)
-        self.assertNotIn("Rendering the video", response.text)
+        self.assertIn("Rendering the video", response.text)
 
     def test_restart_marks_interrupted_job_as_retryable(self):
         self.store.update_project(

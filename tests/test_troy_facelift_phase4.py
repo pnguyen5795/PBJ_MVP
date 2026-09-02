@@ -18,8 +18,8 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
             self.assertIn(status, template)
         self.assertIn("Understanding your footage", template)
         self.assertIn("Building and validating the story", template)
-        self.assertIn("Preparing the handoff", template)
-        self.assertIn("No combined video is rendered", template)
+        self.assertIn("Rendering the video", template)
+        self.assertIn("FFmpeg", template)
 
     def test_cooking_does_not_import_simulated_progress_or_eta(self):
         template = self.read("app/templates/production_progress.html")
@@ -38,12 +38,13 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
         self.assertIn("project.last_error", template)
         self.assertIn("Technical details", template)
 
-    def test_timeline_ready_has_one_openreel_primary_action(self):
+    def test_rough_cut_ready_has_review_actions_without_an_editor(self):
         template = self.read("app/templates/project_ready.html")
-        self.assertEqual(template.count('/openreel"'), 1)
-        self.assertIn("Open in Editor", template)
-        self.assertIn("validated your first timeline", template)
-        self.assertIn("latest valid project snapshot", template)
+        self.assertNotIn("openreel", template.casefold())
+        self.assertIn("Approve this cut", template)
+        self.assertIn("Request changes", template)
+        self.assertIn("Create a new version", template)
+        self.assertIn("<video", template)
         self.assertNotIn("/static/editor/", template)
         self.assertNotIn("Studio", template)
 

@@ -5,61 +5,15 @@
     {"name": "react", "license": "MIT", "use": "historical retired PBJ editor dependency"},
     {"name": "react-dom", "license": "MIT", "use": "historical retired PBJ editor dependency"},
     {"name": "vite", "license": "MIT", "use": "historical retired PBJ editor build dependency"},
-    {"name": "@vitejs/plugin-react", "license": "MIT", "use": "historical retired PBJ editor build dependency"},
-    {"name": "typescript", "license": "Apache-2.0", "use": "historical retired PBJ editor build dependency"},
-    {"name": "@types/react", "license": "MIT", "use": "historical retired PBJ editor dependency"},
-    {"name": "@types/react-dom", "license": "MIT", "use": "historical retired PBJ editor dependency"}
+    {"name": "typescript", "license": "Apache-2.0", "use": "historical retired PBJ editor build dependency"}
   ],
   "reviewed_sources": [
-    {
-      "name": "OpenKlip",
-      "revision": "93dd0010",
-      "license": "MIT",
-      "status": "reviewed_not_imported",
-      "candidate_use": "source mapping, framing, manual locks, and media acceptance tests"
-    },
-    {
-      "name": "Timeline Studio",
-      "revision": "51ee4c62",
-      "license": "MIT",
-      "status": "reviewed_not_imported",
-      "candidate_use": "stable timeline identifiers, transactions, diffs, and interactions"
-    },
-    {
-      "name": "Dawn Cut",
-      "revision": "7de68f",
-      "license": "MIT",
-      "status": "reviewed_not_imported",
-      "candidate_use": "typed commands, reducer, validation, inverse operations, and audit structure"
-    },
-    {
-      "name": "Kinocut",
-      "revision": "882137",
-      "license": "Apache-2.0",
-      "status": "reviewed_not_imported",
-      "candidate_use": "export receipts and QA result structure"
-    },
-    {
-      "name": "OpenChatCut",
-      "revision": "f6d9c37",
-      "license": "AGPL-3.0",
-      "status": "reviewed_not_imported",
-      "candidate_use": "multitrack gestures, AI proposal panel, and grouped undo and redo"
-    },
-    {
-      "name": "Reels Engine",
-      "revision": "ca3195",
-      "license": "MIT",
-      "status": "reviewed_not_imported",
-      "candidate_use": "phrase-safe boundaries, framing checks, and media QA"
-    },
-    {
-      "name": "OpenReel Video",
-      "revision": "5f3c85e5fc223c86060bf4b12e1b4dec58e9b8a9",
-      "license": "MIT",
-      "status": "adapted_integration_overlay",
-      "candidate_use": "OpenReel editor, playback, and compatible existing editing features behind a PBJ-owned adapter; PBJ does not recreate those features, while OpenReel persistence, AI, permissions, generated media, and direct export paths remain non-authoritative or disabled"
-    },
+    {"name": "OpenKlip", "revision": "93dd0010", "license": "MIT", "status": "reviewed_not_imported", "candidate_use": "source mapping, framing, and media acceptance ideas"},
+    {"name": "Timeline Studio", "revision": "51ee4c62", "license": "MIT", "status": "reviewed_not_imported", "candidate_use": "stable timeline identifiers, transactions, and diffs"},
+    {"name": "Dawn Cut", "revision": "7de68f", "license": "MIT", "status": "reviewed_not_imported", "candidate_use": "typed commands, validation, and audit structure"},
+    {"name": "Kinocut", "revision": "882137", "license": "Apache-2.0", "status": "reviewed_not_imported", "candidate_use": "render receipt and QA ideas"},
+    {"name": "OpenChatCut", "revision": "f6d9c37", "license": "AGPL-3.0", "status": "reviewed_not_imported", "candidate_use": "proposal review and grouped undo/redo ideas"},
+    {"name": "Reels Engine", "revision": "ca3195", "license": "MIT", "status": "reviewed_not_imported", "candidate_use": "phrase-safe boundaries and QA heuristics"},
     {
       "name": "Troy PB&J Frontend",
       "repository": "https://github.com/Swag420Money/PB-J.git",
@@ -67,95 +21,40 @@
       "license": "no repository license; owner-confirmed permission",
       "permission_confirmed_at": "2026-09-01",
       "status": "adapted_integration_overlay",
-      "candidate_use": "iPhone-first visual tokens, layout, shared controls, restrained motion, and sandwich artwork; exclude Studio, mock state, fake projects, Clerk authentication, simulated rendering, alternate services, and backend code"
+      "candidate_use": "iPhone-first presentation and approved sandwich artwork only"
     }
   ],
   "adapted_sources": [
     {
-      "name": "OpenReel Video",
-      "revision": "5f3c85e5fc223c86060bf4b12e1b4dec58e9b8a9",
-      "license": "MIT",
-      "upstream_files": [
-        "apps/web/src/App.tsx",
-        "apps/web/src/components/MobileBlocker.tsx",
-        "apps/web/src/components/editor/Toolbar.tsx",
-        "apps/web/src/components/editor/EditorInterface.tsx",
-        "apps/web/src/components/editor/Timeline.tsx",
-        "apps/web/src/components/editor/preview/CropModeView.tsx",
-        "apps/web/src/components/editor/timeline/ClipComponent.tsx",
-        "apps/web/src/components/editor/timeline/Playhead.tsx",
-        "apps/web/src/index.css",
-        "apps/web/src/services/export-runner.ts",
-        "apps/web/index.html",
-        "apps/web/public/manifest.json",
-        "apps/web/vite.config.ts"
-      ],
-      "pbj_files": [
-        "integrations/openreel/overlay/apps/web/src/pbj/pbj-export.ts",
-        "integrations/openreel/overlay/apps/web/src/pbj/pbj-editor-compat.ts",
-        "integrations/openreel/overlay/apps/web/src/pbj/pbj-project-loader.ts",
-        "integrations/openreel/overlay/apps/web/src/pbj/pbj-sync.ts",
-        "integrations/openreel/overlay/APP_PATCH.md",
-        "integrations/openreel/openreel-pbj.patch",
-        "integrations/openreel/LICENSE.openreel",
-        "scripts/setup_openreel.command"
-      ],
-      "modifications": "Loads an opt-in PBJ-projected OpenReel Project through OpenReel's existing project store, hydrates PBJ's mobile-safe per-source proxies sequentially with actual byte-size metadata and abortable requests, remembers a device-local last-project pointer only for Home Screen standalone resume while revalidating all PBJ authority on every launch, shows an explicit failed-resume state, suppresses competing local-recovery prompts for PBJ sessions, proxies PBJ API requests during local hosting, saves debounced whole-project snapshots with an immediate size-safe lifecycle flush when Safari backgrounds or closes the app, connects the standard MP4 renderer to PBJ's intent/receipt/approval gates, corrects OpenReel crop presets to calculate aspect ratios in source pixel space, exposes OpenReel's existing clip move through an accessible keyboard shortcut, presents OpenReel's Preview and compact native Timeline together on narrow and short phone-landscape screens with a fixed center playhead and padded scrolling timeline, places its Assets and Inspector panels in sheets and its existing selected-clip commands in a contextual bottom tray, adapts OpenReel's existing clip move and trim interactions from mouse-only listeners to pointer events with wider narrow-screen trim targets, bypasses the inherited Desktop Only overlay for PBJ sessions without user-agent sniffing, enables safe-area, enforced dynamic-height, standalone, and unlocked-orientation PWA presentation, and scopes PBJ's warm cream, purple, black-action visual continuity and browser theme color to PBJ-launched sessions without changing standalone OpenReel. No editing feature is reimplemented or individually bridged.",
-      "authority_boundary": "OpenReel owns editing-session project state, tools, playback, and undo/redo. PBJ owns the initial handoff, media permissions, durable snapshots, approval, and learning."
-    },
-    {
       "name": "Troy PB&J Frontend",
       "repository": "https://github.com/Swag420Money/PB-J.git",
       "revision": "10c8efdf2f2187604a934d082d038db8729a75d9",
       "license": "no repository license; owner-confirmed permission",
       "permission_confirmed_at": "2026-09-01",
       "upstream_files": [
-        "src/index.css",
-        "src/components/Button.css",
-        "src/components/BackButton.css",
-        "src/components/SandwichBuild.css",
-        "src/screens/Home.tsx",
-        "src/screens/Home.css",
-        "src/screens/ExistingProjects.tsx",
-        "src/screens/ExistingProjects.css",
-        "src/screens/NewProjectDetails.tsx",
-        "src/screens/NewProjectDetails.css",
-        "src/screens/NewProjectPrompt.tsx",
-        "src/screens/NewProjectPrompt.css",
-        "src/screens/TeachIt.tsx",
-        "src/screens/TeachIt.css",
-        "src/screens/Cooking.tsx",
-        "src/screens/Cooking.css",
-        "src/screens/Ready.tsx",
-        "src/screens/Ready.css",
-        "src/screens/Settings.tsx",
-        "src/screens/Settings.css",
-        "public/sandwich-logo.png",
-        "public/sandwich/bottom-bread.png",
-        "public/sandwich/peanut-butter.png",
-        "public/sandwich/jelly.png",
-        "public/sandwich/top-bread.png"
+        "src/index.css", "src/components/Button.css", "src/components/BackButton.css",
+        "src/components/SandwichBuild.css", "src/screens/Home.tsx", "src/screens/Home.css",
+        "src/screens/ExistingProjects.tsx", "src/screens/ExistingProjects.css",
+        "src/screens/NewProjectDetails.tsx", "src/screens/NewProjectDetails.css",
+        "src/screens/NewProjectPrompt.tsx", "src/screens/NewProjectPrompt.css",
+        "src/screens/TeachIt.tsx", "src/screens/TeachIt.css", "src/screens/Cooking.tsx",
+        "src/screens/Cooking.css", "src/screens/Ready.tsx", "src/screens/Ready.css",
+        "src/screens/Settings.tsx", "src/screens/Settings.css", "public/sandwich-logo.png",
+        "public/sandwich/bottom-bread.png", "public/sandwich/peanut-butter.png",
+        "public/sandwich/jelly.png", "public/sandwich/top-bread.png"
       ],
       "pbj_files": [
-        "app/static/troy-foundation.css",
-        "app/static/troy-screens.css",
-        "app/templates/welcome.html",
-        "app/templates/dashboard.html",
-        "app/templates/project_describe.html",
-        "app/templates/project_references.html",
-        "app/templates/project_footage.html",
-        "app/templates/project_brief.html",
-        "app/templates/production_progress.html",
-        "app/templates/project_ready.html",
-        "app/templates/more.html",
-        "app/static/brand/sandwich-logo.png",
-        "app/static/brand/sandwich/bottom-bread.png",
-        "app/static/brand/sandwich/peanut-butter.png",
-        "app/static/brand/sandwich/jelly.png",
-        "app/static/brand/sandwich/top-bread.png"
+        "app/static/troy-foundation.css", "app/static/troy-screens.css",
+        "app/templates/welcome.html", "app/templates/dashboard.html",
+        "app/templates/project_describe.html", "app/templates/project_references.html",
+        "app/templates/project_footage.html", "app/templates/project_brief.html",
+        "app/templates/production_progress.html", "app/templates/project_ready.html",
+        "app/templates/more.html", "app/static/brand/sandwich-logo.png",
+        "app/static/brand/sandwich/bottom-bread.png", "app/static/brand/sandwich/peanut-butter.png",
+        "app/static/brand/sandwich/jelly.png", "app/static/brand/sandwich/top-bread.png"
       ],
-      "modifications": "Translated Troy's visual tokens and actual screen compositions into PBJ-native server-rendered templates and CSS, preserving the Home, Projects, Upload, Recipe, Teach It, Cooking, Ready, and Settings presentation structures while wiring only PBJ's real routes, forms, project records, uploads, progress, errors, and OpenReel handoff. Preserved iPhone safe-area and reduced-motion behavior and copied the approved sandwich artwork without modifying its bytes. No React application state, Clerk authentication, fake project data, simulated rendering, backend service, or Studio code was imported.",
-      "authority_boundary": "Troy's source provides presentation only. PBJ owns routes, sessions, project state, jobs, privacy, learning, and the OpenReel handoff; OpenReel remains the editor."
+      "modifications": "Translated Troy's visual tokens and screen compositions into PBJ-native server-rendered templates and CSS wired only to PBJ's real routes, media, jobs, FFmpeg rendering, revision, approval, privacy, and learning state. Preserved safe-area and reduced-motion behavior and copied approved sandwich artwork without modifying its bytes. No Studio, React application state, Clerk authentication, mock data, simulated rendering, alternate service, or backend code was imported.",
+      "authority_boundary": "Troy's source provides presentation only. PBJ owns all routes, sessions, project state, jobs, media, rendering, privacy, and learning."
     }
   ]
 }

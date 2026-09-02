@@ -43,7 +43,8 @@ class TroyFaceliftFoundationTests(unittest.TestCase):
 
     def test_facelift_contract_excludes_troy_studio_and_mock_logic(self):
         plan = (ROOT_DIR / "docs" / "TROY_FACELIFT_PLAN.md").read_text()
-        self.assertIn("OpenReel remains the only editing", plan)
+        self.assertIn("PBJ has no manual editing Studio", plan)
+        self.assertIn("rendered rough-cut review", plan)
         self.assertIn("Studio | Excluded", plan)
         self.assertIn("simulated rendering", plan)
 

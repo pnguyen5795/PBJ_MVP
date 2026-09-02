@@ -26,10 +26,10 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
         for asset in ("mobile-v2.css", "troy-foundation.css", "troy-screens.css"):
             self.assertIn(asset, base)
             self.assertIn(asset, access)
-            self.assertIn(f"/static/{asset}?v=14", worker)
-        self.assertGreaterEqual(base.count("?v=14"), 3)
-        self.assertGreaterEqual(access.count("?v=14"), 3)
-        self.assertIn('const CACHE = "pbj-shell-v14"', worker)
+            self.assertIn(f"/static/{asset}?v=15", worker)
+        self.assertGreaterEqual(base.count("?v=15"), 3)
+        self.assertGreaterEqual(access.count("?v=15"), 3)
+        self.assertIn('const CACHE = "pbj-shell-v15"', worker)
 
     def test_reduced_motion_and_touch_safe_controls_remain_available(self):
         foundation = self.read("app/static/troy-foundation.css")
@@ -41,21 +41,15 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
 
     def test_upload_and_lifecycle_recovery_contracts_remain_present(self):
         upload = self.read("app/templates/project_footage.html")
-        sync = self.read("integrations/openreel/overlay/apps/web/src/pbj/pbj-sync.ts")
         self.assertIn("const workers=phoneLayout?1:2", upload)
         self.assertIn("(max-width: 900px) and (max-height: 500px)", upload)
-        self.assertIn('document.addEventListener("visibilitychange"', sync)
-        self.assertIn('window.addEventListener("pagehide"', sync)
-        self.assertIn("byteLength <= 60_000", sync)
 
-    def test_openreel_patch_keeps_phone_layout_when_rotated(self):
-        patch = self.read("integrations/openreel/openreel-pbj.patch")
-        self.assertIn("MOBILE_EDITOR_LANDSCAPE_MAX_WIDTH = 900", patch)
-        self.assertIn("MOBILE_EDITOR_LANDSCAPE_MAX_HEIGHT = 500", patch)
-        self.assertIn("isMobileEditorViewport(window.innerWidth, window.innerHeight)", patch)
-        self.assertIn("(max-width: 900px) and (max-height: 500px)", patch)
-        self.assertIn("pbj-toolbar-mobile", patch)
-        self.assertIn("pbj-toolbar-desktop", patch)
+    def test_rough_cut_player_is_mobile_safe(self):
+        template = self.read("app/templates/project_ready.html")
+        screens = self.read("app/static/troy-screens.css")
+        self.assertIn("playsinline", template)
+        self.assertIn("pbj-roughcut-player", screens)
+        self.assertIn("max-height:62vh", screens)
 
 
 if __name__ == "__main__":

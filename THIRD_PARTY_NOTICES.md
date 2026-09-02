@@ -26,18 +26,6 @@ status are recorded in `docs/third_party_sources.json`. Any adapted files,
 original revision, license, modifications, and required notices must be recorded
 before integration.
 
-## OpenReel integration overlay
-
-PBJ's read-only project loader is adapted against OpenReel Video revision
-`5f3c85e5fc223c86060bf4b12e1b4dec58e9b8a9`, licensed under MIT. The exact
-upstream and PBJ paths and modification summary are recorded in
-`docs/third_party_sources.json`. This adapter loads PBJ project data through
-OpenReel's existing project store; it does not recreate OpenReel editing features.
-The complete MIT notice is preserved in
-`integrations/openreel/LICENSE.openreel`. The reproducible PBJ modifications are
-stored in `integrations/openreel/openreel-pbj.patch` and are applied to the
-pinned source revision by `scripts/setup_openreel.command`.
-
 ## Troy PB&J frontend visual source
 
 The PBJ owner confirmed permission on September 1, 2026 to use and modify the

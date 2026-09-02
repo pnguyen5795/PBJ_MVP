@@ -34,8 +34,6 @@ class Settings:
     session_secret: str = os.getenv("PBJ_SESSION_SECRET", "pbj-local-development-only")
     session_days: int = 7
     max_upload_batch_bytes: int = 2 * 1024 * 1024 * 1024
-    openreel_origin: str = os.getenv("PBJ_OPENREEL_ORIGIN", "").rstrip("/")
-    openreel_port: int = int(os.getenv("PBJ_OPENREEL_PORT", "5173"))
 
     @property
     def templates_dir(self) -> Path:

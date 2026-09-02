@@ -6,7 +6,7 @@
     <div class="failure-orb">!</div><h1>This export needs another try</h1><p class="production-lead">No approval or positive learning evidence was recorded.</p><a class="button" href="/projects/{{ project.project_id }}/ready">Return to project</a>
   {% else %}
     <div class="success-orb">✓</div><p class="eyebrow">EXPORT COMPLETE</p><h1>Your cut is ready 🎉</h1>
-    <p class="production-lead">The finished video passed its required checks and this exact timeline became the project’s approved learning outcome.</p>
+    <p class="production-lead">The finished video passed its required checks. Watch it before choosing whether to approve it.</p>
     <div class="panel"><a class="button" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download video</a><a href="/projects/{{ project.project_id }}/ready">View project</a><a href="/">Return Home</a></div>
   {% endif %}
 </section>

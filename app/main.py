@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import List
 from datetime import datetime
-from urllib.parse import urlencode
 import asyncio
 import json
 import os
@@ -31,7 +30,7 @@ from .timeline.proxies import ProxyPipeline
 from .timeline.proposals import TimelineProposalService
 from .timeline.export import TimelineExportService
 from .timeline.lifecycle import ACTIVE_JOB_STATES, begin_timeline_job, fail_timeline_job, finish_timeline_job, mark_working_timeline_changed
-from .openreel_adapter import approve_openreel_export, complete_openreel_render, create_openreel_export_intent, latest_openreel_snapshot, project_openreel_for_resume, save_openreel_snapshot
+from .timeline.learning import approve_timeline_export
 
 
 app = FastAPI(title="PB&J Recipe Engine", version="1.0.0")
@@ -988,6 +987,25 @@ async def _run_complete_production(project_id: str) -> None:
     try:
         await ProjectAnalysisWorkflow(store).analyze(project_id, refresh=False)
         await TimelinePreparationWorkflow(store).create(project_id)
+        timeline = TimelineStore(store).load(project_id)
+        export = TimelineExportService(store).create(
+            project_id, timeline["timeline_hash"],
+            approve_on_success=False, approval_confirmation=False,
+        )
+        TimelineExportService(store).run(project_id, export["export_id"])
+    except Exception:
+        return
+
+
+async def _run_revision(project_id: str, feedback: str) -> None:
+    try:
+        await TimelinePreparationWorkflow(store).create(project_id, feedback=feedback)
+        timeline = TimelineStore(store).load(project_id)
+        export = TimelineExportService(store).create(
+            project_id, timeline["timeline_hash"],
+            approve_on_success=False, approval_confirmation=False,
+        )
+        TimelineExportService(store).run(project_id, export["export_id"])
     except Exception:
         return
 
@@ -1033,23 +1051,9 @@ async def project_ready_page(request: Request, project_id: str):
             migrate_legacy_project(store, project_id)
         else:
             return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
-    return templates.TemplateResponse(request, "project_ready.html", {"project": project})
-
-
-@app.get("/projects/{project_id}/openreel")
-async def open_project_in_openreel(request: Request, project_id: str):
-    project = store.project(project_id)
-    if not TimelineStore(store).exists(project_id):
-        if project.get("latest_run"):
-            migrate_legacy_project(store, project_id)
-        else:
-            return RedirectResponse(f"/projects/{project_id}/production-progress", status_code=303)
-    origin = settings.openreel_origin
-    if not origin:
-        hostname = request.url.hostname or "127.0.0.1"
-        origin = f"{request.url.scheme}://{hostname}:{settings.openreel_port}"
-    query = urlencode({"pbjProject": project_id})
-    return RedirectResponse(f"{origin}/?{query}", status_code=303)
+    return templates.TemplateResponse(request, "project_ready.html", {
+        "project": project, "export": project.get("latest_export") or {},
+    })
 
 
 @app.get("/api/projects/{project_id}/timeline")
@@ -1061,95 +1065,6 @@ async def get_project_timeline(project_id: str):
             raise HTTPException(409, "The first timeline is not ready")
         migrate_legacy_project(store, project_id)
     return timelines.load(project_id)
-
-
-@app.get("/api/projects/{project_id}/openreel/project")
-async def get_openreel_project(project_id: str):
-    timelines = TimelineStore(store)
-    if not timelines.exists(project_id):
-        project = store.project(project_id)
-        if not project.get("latest_run"):
-            raise HTTPException(409, "The first timeline is not ready")
-        migrate_legacy_project(store, project_id)
-    project = store.project(project_id)
-    return project_openreel_for_resume(store, project, timelines.load(project_id))
-
-
-@app.post("/api/projects/{project_id}/openreel/snapshots")
-async def create_openreel_snapshot(request: Request, project_id: str):
-    project = store.project(project_id)
-    if project.get("editor_read_only"):
-        raise HTTPException(409, "This project is locked while an export is running")
-    timelines = TimelineStore(store)
-    if not timelines.exists(project_id):
-        raise HTTPException(409, "The first timeline is not ready")
-    try:
-        return save_openreel_snapshot(store, project_id, timelines.load(project_id), await request.json())
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(422, str(exc))
-
-
-@app.get("/api/projects/{project_id}/openreel/snapshots/latest")
-async def get_latest_openreel_snapshot(project_id: str):
-    store.project(project_id)
-    try:
-        return latest_openreel_snapshot(store, project_id)
-    except FileNotFoundError:
-        raise HTTPException(404, "No OpenReel snapshot has been saved")
-
-
-@app.post("/api/projects/{project_id}/openreel/exports")
-async def create_openreel_export(request: Request, project_id: str):
-    project = store.project(project_id)
-    if project.get("editor_read_only") or project.get("status") in ACTIVE_JOB_STATES:
-        raise HTTPException(409, "Wait for the current project task to finish before exporting")
-    timelines = TimelineStore(store)
-    if not timelines.exists(project_id):
-        raise HTTPException(409, "The first timeline is not ready")
-    try:
-        record = create_openreel_export_intent(
-            store, project_id, timelines.load(project_id), await request.json(),
-        )
-    except FileNotFoundError:
-        raise HTTPException(409, "Save the OpenReel project before exporting")
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(422, str(exc))
-    return {
-        "export_id": record["export_id"],
-        "snapshot_id": record["snapshot_id"],
-        "status": record["status"],
-        "completion_url": f"/api/projects/{project_id}/openreel/exports/{record['export_id']}/complete",
-    }
-
-
-@app.post("/api/projects/{project_id}/openreel/exports/{export_id}/complete")
-async def complete_openreel_export(request: Request, project_id: str, export_id: str):
-    store.project(project_id)
-    try:
-        record = complete_openreel_render(store, project_id, export_id, await request.json())
-    except FileNotFoundError:
-        raise HTTPException(404, "The OpenReel export was not found")
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(422, str(exc))
-    return {
-        "export_id": record["export_id"],
-        "snapshot_id": record["snapshot_id"],
-        "status": record["status"],
-        "approval_required": True,
-        "approval_url": f"/api/projects/{project_id}/openreel/exports/{export_id}/approve",
-    }
-
-
-@app.post("/api/projects/{project_id}/openreel/exports/{export_id}/approve")
-async def approve_completed_openreel_export(request: Request, project_id: str, export_id: str):
-    store.project(project_id)
-    try:
-        approval = approve_openreel_export(store, project_id, export_id, await request.json())
-    except FileNotFoundError:
-        raise HTTPException(404, "The OpenReel export was not found")
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(422, str(exc))
-    return approval
 
 
 @app.post("/api/projects/{project_id}/timeline/transactions")
@@ -1461,16 +1376,25 @@ async def project_revision_page(request: Request, project_id: str):
 
 @app.get("/projects/{project_id}/approval", response_class=HTMLResponse)
 async def project_approval_page(request: Request, project_id: str):
-    project = store.project(project_id)
-    latest = project.get("latest_export") or {}
-    if latest.get("status") == "complete":
-        return RedirectResponse("/projects/%s/exports/%s/complete" % (project_id, latest["export_id"]), status_code=303)
     return RedirectResponse("/projects/%s/ready" % project_id, status_code=303)
 
 
 @app.post("/projects/{project_id}/approve")
-async def approve_project_run(project_id: str):
-    raise HTTPException(410, "Rendered-cut approval is unavailable until the OpenReel handoff is implemented.")
+async def approve_project_run(project_id: str, confirmation: str = Form("")):
+    if confirmation != "approve":
+        raise HTTPException(400, "Confirm that this finished cut is approved")
+    project = store.project(project_id)
+    export = project.get("latest_export") or {}
+    if export.get("status") != "complete":
+        raise HTTPException(409, "A completed rough cut is required before approval")
+    timeline = store.read_json(store.resolve_data_path(export["timeline_path"]))
+    receipt = store.read_json(store.resolve_data_path(export["render_receipt_path"]))
+    approval = approve_timeline_export(store, project_id, export, timeline, receipt)
+    export["approval"] = approval
+    export_path = store.project_dir(project_id) / "exports" / export["export_id"] / "export.json"
+    store.write_json(export_path, export)
+    store.update_project(project_id, status="approved", latest_export=export)
+    return RedirectResponse("/projects/%s/approval" % project_id, status_code=303)
 
 
 @app.get("/examples", response_class=HTMLResponse)
@@ -1486,18 +1410,39 @@ async def retry_failed_rough_cut(project_id: str, background_tasks: BackgroundTa
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
     if project.get("status") == "export_failed" and TimelineStore(store).exists(project_id):
-        store.update_project(project_id, status="timeline_ready", last_error=None)
-        return RedirectResponse("/projects/%s/ready" % project_id, status_code=303)
+        timeline = TimelineStore(store).load(project_id)
+        export = TimelineExportService(store).create(
+            project_id, timeline["timeline_hash"], approve_on_success=False,
+            approval_confirmation=False,
+        )
+        background_tasks.add_task(_run_timeline_export, project_id, export["export_id"])
+        return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
     if project.get("status") != "timeline_failed" or not project.get("content_map"):
         raise HTTPException(400, "Only failed timeline preparation can be retried here")
     store.update_project(project_id, status="timeline_queued", last_error=None, active_task="Rebuilding the timeline from saved analysis", active_started_at=utc_now())
-    background_tasks.add_task(TimelinePreparationWorkflow(store).create, project_id)
+    background_tasks.add_task(_run_revision, project_id, "Rebuild the cut after the previous preparation failure.")
     return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
 
 
 @app.post("/projects/{project_id}/revise")
 async def revise_rough_cut(project_id: str, background_tasks: BackgroundTasks, feedback: str = Form(...), focus: List[str] = Form([])):
-    return RedirectResponse("/projects/%s/ready" % project_id, status_code=303)
+    feedback = feedback.strip()
+    if not feedback:
+        raise HTTPException(400, "Describe what you want changed")
+    project = store.project(project_id)
+    if not TimelineStore(store).exists(project_id) or not (project.get("latest_export") or {}).get("status") == "complete":
+        raise HTTPException(409, "Finish the current rough cut before requesting changes")
+    combined = feedback
+    if focus:
+        combined += "\nFocus areas: " + ", ".join(focus)
+    history = project.get("revision_feedback", []) + [{"feedback": combined, "requested_at": utc_now()}]
+    store.update_project(
+        project_id, status="timeline_queued", last_error=None,
+        active_task="Replanning from your feedback", active_started_at=utc_now(),
+        revision_feedback=history, pending_revision_feedback=combined,
+    )
+    background_tasks.add_task(_run_revision, project_id, combined)
+    return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
 
 
 @app.get("/projects/{project_id}/output/{run_id}")

@@ -3,7 +3,7 @@
 set -u
 
 PBJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
-PBJ_PORTS=(8000 8001 5173)
+PBJ_PORTS=(8000 8001)
 stopped=0
 typeset -a pbj_terminal_ttys
 
@@ -53,8 +53,7 @@ for port in "${PBJ_PORTS[@]}"; do
     process_root=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
     process_command=$(ps -p "$pid" -o command= 2>/dev/null)
 
-    if [[ ( "$process_root" == "$PBJ_ROOT" && "$process_command" == *"uvicorn"*"app.main:app"* ) ||
-          ( "$port" == "5173" && "$process_root" == "$PBJ_ROOT/.evaluations/openreel-video"* ) ]]; then
+    if [[ "$process_root" == "$PBJ_ROOT" && "$process_command" == *"uvicorn"*"app.main:app"* ]]; then
       process_tty="$(ps -p "$pid" -o tty= 2>/dev/null | tr -d '[:space:]')"
       if [[ -n "$process_tty" && "$process_tty" != "??" ]]; then
         [[ "$process_tty" == /dev/* ]] || process_tty="/dev/$process_tty"

@@ -498,7 +498,12 @@ class TimelinePreparationWorkflow:
             self.store.write_json(root / "source_time_decisions.json", {
                 "schema_version": "1.0", "decisions": source_time_decisions(plan),
             })
-            timeline = self.timelines.initialize(project_id, timeline)
+            if self.timelines.exists(project_id):
+                if not feedback.strip():
+                    raise ValueError("The first timeline already exists; provide revision feedback to replace it")
+                timeline = self.timelines.replace_with_ai_revision(project_id, timeline, feedback.strip())
+            else:
+                timeline = self.timelines.initialize(project_id, timeline)
             self.store.update_project(
                 project_id, status="preparing_proxies", active_task="Preparing fast previews for each source clip",
             )

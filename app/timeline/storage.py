@@ -57,6 +57,29 @@ class TimelineStore:
             self._append_event(project_id, {"type": "timeline.initialized", "origin": origin, "timeline_hash": timeline["timeline_hash"], "revision": timeline["revision"]})
             return deepcopy(timeline)
 
+    def replace_with_ai_revision(self, project_id: str, timeline: Dict[str, Any], feedback: str) -> Dict[str, Any]:
+        """Replace the working cut with a validated AI revision while preserving the original baseline."""
+        with self._lock(project_id):
+            current = self.load(project_id)
+            validate_timeline(timeline)
+            timeline = deepcopy(timeline)
+            timeline["revision"] = int(current.get("revision", 0)) + 1
+            refresh_hash(timeline)
+            validate_timeline(timeline)
+            root = self.root(project_id)
+            self.store.write_json(root / "current.json", timeline)
+            self.store.write_json(root / "snapshots" / ("ai-revision-%d.json" % timeline["revision"]), timeline)
+            history = self._history(project_id)
+            history["undo"] = []
+            history["redo"] = []
+            self.store.write_json(root / "history.json", history)
+            self._append_event(project_id, {
+                "type": "timeline.ai_revision", "origin": "revision_feedback",
+                "feedback": feedback, "before_hash": current["timeline_hash"],
+                "timeline_hash": timeline["timeline_hash"], "revision": timeline["revision"],
+            })
+            return timeline
+
     def transact(self, project_id: str, transaction: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock(project_id):
             current = self.load(project_id)
