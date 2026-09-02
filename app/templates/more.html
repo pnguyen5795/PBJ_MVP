@@ -1,6 +1,6 @@
-{% extends "base.html" %}{% block title %}More · PBJ{% endblock %}{% block content %}
-<section class="pbj-more-head"><p class="eyebrow">PBJ</p><h1>More</h1><p>Workspace and private-beta controls.</p></section>
-<section class="pbj-menu-list">
+{% extends "base.html" %}{% block title %}Settings · PBJ{% endblock %}{% block content %}
+<section class="pbj-settings-exact pbj-screen-exact"><a href="/" class="pbj-back-button pbj-back-floating" aria-label="Back">‹</a><div class="pbj-settings-exact__hero"><h1>Your Workspace</h1><p>Private beta controls</p></div><div class="pbj-settings-exact__avatar">PBJ</div>
+<div class="pbj-settings-exact__list">
   <a href="/projects"><span class="pbj-menu-icon">▣</span><div><strong>My Projects</strong><small>Continue a project</small></div><b>›</b></a>
   <a href="/styles"><span class="pbj-menu-icon">◇</span><div><strong>Recipe Lab</strong><small>Private operator infrastructure</small></div><b>›</b></a>
   {% if request.session.owner %}
@@ -8,7 +8,7 @@
   <a href="/examples"><span class="pbj-menu-icon">✦</span><div><strong>Learning Library</strong><small>Approved examples and outcomes</small></div><b>›</b></a>
   <a href="/assets"><span class="pbj-menu-icon">☁</span><div><strong>Remote Files</strong><small>Manage provider copies</small></div><b>›</b></a>
   {% endif %}
-</section>
-{% if request.session.owner %}<div class="notice success">Owner tools are unlocked on this device.</div>{% else %}<details class="owner-unlock" {% if owner_state == 'invalid' %}open{% endif %}><summary>Owner access</summary><p>Unlock private operator controls for shared recipes and provider settings.</p>{% if owner_state == 'invalid' %}<div class="notice error">That owner code did not match.</div>{% endif %}<form action="/owner-access" method="post"><input name="code" type="password" autocapitalize="none" required placeholder="Owner code"><button class="button" type="submit">Unlock</button></form></details>{% endif %}
-<section class="pbj-install-card"><span>↓</span><div><strong>Add PBJ to your Home Screen</strong><p>In Safari, tap Share, then Add to Home Screen.</p></div></section>
+</div>
+{% if request.session.owner %}<div class="notice success pbj-settings-exact__owner">Owner tools are unlocked on this device.</div>{% else %}<details class="owner-unlock pbj-settings-exact__owner" {% if owner_state == 'invalid' %}open{% endif %}><summary>Owner access</summary><p>Unlock private operator controls for shared recipes and provider settings.</p>{% if owner_state == 'invalid' %}<div class="notice error">That owner code did not match.</div>{% endif %}<form action="/owner-access" method="post"><input name="code" type="password" autocapitalize="none" required placeholder="Owner code"><button class="button" type="submit">Unlock</button></form></details>{% endif %}
+<div class="pbj-settings-exact__install"><strong>Add PBJ to your Home Screen</strong>In Safari, tap Share, then Add to Home Screen.</div></section>
 {% endblock %}

@@ -7,8 +7,8 @@ one project to rewrite shared knowledge.
 
 ## Current product state
 
-The `troy-facelift` branch contains the approved phased plan to adopt Troy's
-iPhone-first visual system while retaining PBJ's real backend and governed
+The `troy-facelift` branch contains the approved phased plan to implement Troy's
+iPhone-first screen compositions faithfully while retaining PBJ's real backend and governed
 OpenReel editor. Black primary actions are balanced with purple highlights and
 progress states. Troy's Studio, mock data, simulated rendering, authentication,
 and alternate backend are explicitly excluded. See

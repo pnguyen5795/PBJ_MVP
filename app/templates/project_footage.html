@@ -1,37 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Add footage · PBJ{% endblock %}
 {% block content %}
-<section class="pbj-create-flow">
-  <header class="pbj-create-top"><a href="/projects/new/references" class="pbj-back-button" aria-label="Back to References">‹</a><span>New Project</span><span class="pbj-create-step">3 of 4</span></header>
-  <div class="pbj-progress" style="--pbj-progress:75%"><span></span></div>
-  <div class="pbj-create-hero"><p class="step-count">YOUR FOOTAGE</p><h1>Add your raw footage</h1><p>Choose all the ingredients PBJ should consider for this timeline.</p></div>
-<section class="flow-layout pbj-create-media-layout">
+<section class="pbj-np1 pbj-screen-exact">
+  <a href="/projects/new/references" class="pbj-back-button pbj-back-floating" aria-label="Back to References">‹</a>
+  <div class="pbj-np1__body"><div class="pbj-np1__hero"><h1 class="pbj-np1__title-display">{{ draft.name or 'New Project' }}</h1><span class="sr-only">Add your raw footage</span></div><div class="pbj-np1__middle"><section class="pbj-np1__section">
   {% if uploaded_session %}
-  <div class="form pbj-create-form"><div class="media-stack">{% for file in uploaded_session.files %}<div class="media-row"><span class="media-icon">▶</span><div><strong>{{ file.original_name }}</strong><small>{{ (file.size_bytes / 1048576)|round(1) }} MB</small></div><em>Ready</em></div>{% endfor %}</div><div class="notice success">{{ uploaded_session.files|length }} clip{{ '' if uploaded_session.files|length == 1 else 's' }} uploaded and ready.</div><div class="wizard-actions"><a class="button secondary" href="/projects/new/references">Back</a><a class="button" href="/projects/new/brief?session_id={{ uploaded_session.session_id }}">Next →</a></div></div>
+  <div class="pbj-np1__clip-grid">{% for file in uploaded_session.files %}<div class="pbj-np1__clip-tile"><span>▶</span><small>{{ file.original_name }}</small></div>{% endfor %}</div><div class="pbj-np1__footer"><a class="button wide" href="/projects/new/brief?session_id={{ uploaded_session.session_id }}">Next</a></div>
   {% else %}
-  <form id="footage-upload-form" class="form upload-form pbj-create-form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true">
+  <form id="footage-upload-form" class="upload-form pbj-np1__form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true">
     <input type="hidden" name="style_id" value="{{ style.style_id if style else '' }}">
     <input type="hidden" name="target_seconds" value="60">
     <input type="hidden" name="prompt" value="{{ draft.description }}">
     <input type="hidden" name="name" value="{{ draft.name }}">
-    <label id="footage-dropzone" class="upload-zone" for="footage-input">
+    <label id="footage-dropzone" class="pbj-np1__dropzone-empty" for="footage-input">
       <input id="footage-input" class="file-input-overlay" type="file" name="footage" accept="video/*" multiple required aria-label="Choose raw footage videos">
-      <span class="upload-icon">＋</span>
-      <strong>Choose your raw footage</strong><span class="choose-files">Tap to choose files</span>
-      <small>Photos or Files · MOV, HEVC, H.264 · up to 2 GB per batch</small>
+      <span class="pbj-np1__plus">＋</span><strong>Add Footage</strong><small>Photos or Files</small>
     </label>
     <div id="selected-files" class="selected-files" aria-live="polite"></div>
     <div id="upload-status" class="notice" hidden aria-live="polite"></div>
-    <div class="wizard-actions"><a class="button secondary" href="/projects/new/references">Back</a><button id="upload-submit" class="button" type="submit">Upload &amp; next →</button></div>
+    <div class="pbj-np1__duration"><span>Target length</span><strong>60 seconds</strong></div><div class="pbj-np1__footer"><button id="upload-submit" class="button wide" type="submit">Next</button></div>
   </form>
   {% endif %}
-  <aside class="flow-aside">
-    <span>YOUR MEDIA 🔒</span>
-    <h3>Only your footage is used.</h3>
-    <p>The editor can trim, reorder, crop, zoom, and combine your clips. It will not generate new footage, voices, or music.</p>
-    <small>PBJ keeps its editing decisions auditable while the creative machinery stays out of your way.</small>
-  </aside>
-</section></section>
+  </section></div></div></section>
 {% endblock %}
 {% block scripts %}
 {% if not uploaded_session %}

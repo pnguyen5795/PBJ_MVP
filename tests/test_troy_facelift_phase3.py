@@ -9,19 +9,19 @@ class TroyFaceliftPhase3Tests(unittest.TestCase):
     def read(self, relative_path: str) -> str:
         return (ROOT / relative_path).read_text()
 
-    def test_all_four_steps_share_the_real_creation_shell(self):
-        files = (
-            "project_describe.html",
-            "project_references.html",
-            "project_footage.html",
-            "project_new_brief.html",
-        )
-        for index, name in enumerate(files, start=1):
+    def test_creation_steps_use_troys_real_screen_compositions(self):
+        expected = {
+            "project_describe.html": "pbj-np2",
+            "project_references.html": "pbj-teach-it",
+            "project_footage.html": "pbj-np1",
+            "project_brief.html": "pbj-np2",
+        }
+        for name, screen_class in expected.items():
             template = self.read("app/templates/" + name)
-            self.assertIn("pbj-create-flow", template)
-            self.assertIn("pbj-create-top", template)
-            self.assertIn(f">{index} of 4<", template)
-            self.assertIn(f"--pbj-progress:{index * 25}%", template)
+            self.assertIn(screen_class, template)
+            self.assertIn("pbj-screen-exact", template)
+            self.assertNotIn("pbj-create-top", template)
+            self.assertNotIn("pbj-progress", template)
 
     def test_canonical_routes_and_back_paths_are_unchanged(self):
         describe = self.read("app/templates/project_describe.html")

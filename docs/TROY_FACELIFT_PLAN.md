@@ -1,14 +1,16 @@
 # Troy Facelift Implementation Plan
 
 **Branch:** `troy-facelift`
-**Status:** Approved for phased implementation
+**Status:** Phase 7 reopened September 1, 2026 after visual acceptance failure
 **Last updated:** September 1, 2026
 
 ## Objective
 
-Adopt the mobile visual system from Troy's PB&J frontend while preserving PBJ's
-existing backend, canonical routes, project data, privacy model, learning system,
-and governed OpenReel integration.
+Implement Troy's reviewed mobile screens with presentation-level fidelity while
+preserving PBJ's existing backend, canonical routes, project data, privacy model,
+learning system, and governed OpenReel integration. PBJ must use Troy's actual
+screen compositions and shared presentation components; applying his tokens to
+PBJ's former markup does not satisfy this objective.
 
 Troy's frontend is a visual source, not a replacement application architecture.
 PBJ will not import Troy's mock state, simulated rendering, Clerk authentication,
@@ -291,7 +293,8 @@ physical-iPhone acceptance and merge approval
 - Finalize provenance, notices, screenshots, and implementation documentation.
 - Create a final facelift checkpoint for review before merging into `main`.
 
-**Gate:** the user explicitly approves the facelift and all required checks pass.
+**Gate:** the user explicitly accepts and approves the facelift and all required
+checks pass.
 
 Prepared:
 
@@ -318,9 +321,42 @@ Acceptance adjustment requested September 1, 2026:
 - advanced the PWA shell cache so installed copies receive the removal rather
   than retaining the prior cached navigation.
 
-Merge boundary: this branch is ready for the owner's physical-iPhone review.
-Do not mark Phase 7 complete or merge `troy-facelift` into `main` until the owner
-explicitly accepts the visual walkthrough and authorizes the merge.
+Merge boundary: the previous candidate is rejected and this branch is not ready
+for merge. Do not mark Phase 7 complete or merge `troy-facelift` into `main`
+until the faithful-screen remediation passes verification and the owner explicitly
+accepts the visual walkthrough and authorizes the merge.
+
+Acceptance failure recorded September 1, 2026:
+
+- the owner rejected the candidate because it visibly adapted Troy's styling to
+  PBJ's former screen compositions instead of using Troy's screens faithfully;
+- Phase 7 is reopened and the prior candidate is not merge-ready;
+- remediation must compare every PBJ-owned user screen against Troy's pinned
+  source and 390×844 captures, reuse his exact composition and shared component
+  structure wherever a counterpart exists, and connect only PBJ's real state and
+  actions;
+- PBJ's canonical route order remains authoritative, Troy's Studio remains
+  excluded, and unmatched PBJ states must reuse the closest Troy composition
+  without creating another visual system.
+
+Faithful-screen remediation in progress September 1, 2026:
+
+- removed the inherited PBJ mobile workspace header, four-step progress rails,
+  explanatory hero cards, desktop-like side notes, and recent-project Home feed;
+- replaced those adapted layouts with Troy's actual Home, Projects, Recipe,
+  Teach It, Upload, Settings, Cooking, and Ready composition classes while
+  keeping PBJ's real forms, routes, privacy boundary, jobs, and OpenReel handoff;
+- added `app/static/troy-screens.css` as the isolated presentation mapping and
+  advanced the PWA cache so installed copies cannot retain the rejected shell;
+- verified the corrected Recipe and Home compositions in the iPhone 17 Pro
+  simulator and fixed a stale-cache and inherited serif-button defect found
+  during that walkthrough;
+- PBJ's complete suite passes 143 tests; OpenReel's complete suite passes,
+  including 863 web tests with 7 skipped, and the OpenReel production build
+  succeeds;
+- Phase 7 remains open. Provider-backed analysis and a real-media end-to-end run
+  are not included because no user-supplied file has yet been authorized for
+  transmission to the configured external providers.
 
 ## Progress reporting
 

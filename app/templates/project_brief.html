@@ -1,26 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Creative brief · PBJ{% endblock %}
 {% block content %}
-<section class="flow-head">
-  <a href="/projects" class="back-link">← Back</a>
-  <p class="step-count">NEW PROJECT · 4 OF 4</p>
-  <h1>Anything specific?</h1>
-  <p>Add requirements for this cut. Leave it blank to give the editor more freedom.</p>
-</section>
-<section class="flow-layout">
-  <form class="panel form brief-form" action="/projects/{{ project.project_id }}/brief" method="post">
-    <label class="brief-box">Final details <span>Optional</span>
-      <textarea name="prompt" rows="8" placeholder="Make this a roughly 60-second vertical video. Focus on the excitement of the flight, open with the strongest moment, and use reactions throughout.">{{ project.prompt }}</textarea>
-      <small>Describe the story, feeling, important moments, or anything you want avoided.</small>
-    </label>
-    <div class="notice">If you mention a duration in your instructions—such as “make it about 45 seconds”—the editing engine will use it. If you do not specify one, the default is about 60 seconds.</div>
-    <button class="button wide" type="submit">Create cut <span>→</span></button>
-  </form>
-  <aside class="flow-aside">
-    <span>PB&amp;J IS READY</span>
-    <h3>Your editing approach is matched behind the scenes.</h3>
-    <p>The match, supporting examples, and later revisions are recorded for the learning loop without exposing recipe controls here.</p>
-    <small>{{ project.raw_files|length }} raw clips ready</small>
-  </aside>
-</section>
+<section class="pbj-np2 pbj-screen-exact"><a href="/projects/new/footage" class="pbj-back-button pbj-back-floating" aria-label="Back">‹</a><form class="pbj-np2__form" action="/projects/{{ project.project_id }}/brief" method="post"><div class="pbj-np2__body"><div class="pbj-np2__hero"><h1 class="pbj-np2__title">The Recipe</h1><p class="pbj-np2__subtitle">anything else before we cook?</p></div><div class="pbj-np2__prompt-wrap"><textarea class="pbj-np2__prompt" name="prompt" rows="1" placeholder="Add final details, important moments, or anything to avoid…">{{ project.prompt }}</textarea></div><p class="pbj-np2__summary">{{ project.raw_files|length }} clip{{ '' if project.raw_files|length == 1 else 's' }} ready · about {{ project.target_duration_seconds }} seconds</p></div><div class="pbj-np2__footer"><button class="button wide" type="submit">let’s cook!</button></div></form></section>
 {% endblock %}

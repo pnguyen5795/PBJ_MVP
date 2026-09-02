@@ -18,12 +18,14 @@ class TroyFaceliftPhase2Tests(unittest.TestCase):
         self.assertNotIn("Clerk", template)
         self.assertNotIn("Continue With Apple", template)
 
-    def test_home_uses_real_project_state_and_canonical_actions(self):
+    def test_home_matches_troys_minimal_composition_and_canonical_actions(self):
         template = self.read("app/templates/welcome.html")
-        self.assertIn("{% for project in projects %}", template)
         self.assertIn('href="/projects/new"', template)
         self.assertIn('href="/projects"', template)
-        self.assertIn("pbj-home__recents", template)
+        self.assertIn("pbj-home__mark", template)
+        self.assertIn("pbj-home__actions", template)
+        self.assertNotIn("pbj-home__intro", template)
+        self.assertNotIn("pbj-home__recents", template)
         self.assertNotIn("activeRenders", template)
 
     def test_projects_keep_real_routes_and_deliberate_delete(self):

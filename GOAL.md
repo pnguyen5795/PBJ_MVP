@@ -16,9 +16,10 @@ The timeline—not a rendered MP4—is the authoritative first cut. PBJ hands th
 
 Strengthen Recipe Engine v1 and build a governed PBJ-to-OpenReel handoff. PBJ must continue improving through evidence-backed recipes, multi-reference synthesis, invisible prompt-to-recipe inference, approved-example retrieval, controlled feedback classification, versioning, and measurable initial-to-approved timeline learning.
 
-On the `troy-facelift` branch, PBJ is also adopting the approved iPhone-first
-visual system from Troy's frontend at pinned commit `10c8efd`. This is a visual
-adaptation only: PBJ's backend, canonical routes, real project state, privacy and
+On the `troy-facelift` branch, PBJ is implementing the approved iPhone-first
+screens from Troy's frontend at pinned commit `10c8efd` with presentation-level
+fidelity, rather than merely borrowing its colors and styling PBJ's old screen
+compositions. PBJ's backend, canonical routes, real project state, privacy and
 learning boundaries, and OpenReel ownership remain authoritative. Troy's Studio,
 mock logic, alternate backend, fake data, and simulated progress are excluded.
 The phased implementation and acceptance gates are recorded in

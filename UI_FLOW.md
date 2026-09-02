@@ -5,9 +5,11 @@
 
 ## Troy facelift presentation contract
 
-The `troy-facelift` branch may restyle every PBJ-owned screen using the approved
-iPhone-first visual system documented in `docs/TROY_FACELIFT_PLAN.md`. The route
-order below does not change. Troy's Studio is excluded; Timeline Ready continues
+The `troy-facelift` branch must use the approved Troy iPhone screen compositions
+documented in `docs/TROY_FACELIFT_PLAN.md`, not PBJ's former layouts with a Troy-like
+skin. The route order below does not change. Where PBJ has an additional canonical
+state, it must reuse the closest Troy composition and component structure without
+inventing a competing shell. Troy's Studio is excluded; Timeline Ready continues
 to hand the project to OpenReel. Black primary actions balanced with purple
 active and progress states are presentation changes, not new product authority.
 Troy's mock state, fake projects, simulated progress, Clerk authentication, and

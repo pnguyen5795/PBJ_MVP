@@ -1,14 +1,11 @@
 {% extends "base.html" %}{% block title %}New project · PBJ{% endblock %}{% block content %}
-<section class="pbj-create-flow">
-  <header class="pbj-create-top"><a href="/" class="pbj-back-button" aria-label="Back to Home">‹</a><span>New Project</span><span class="pbj-create-step">1 of 4</span></header>
-  <div class="pbj-progress" style="--pbj-progress:25%"><span></span></div>
-  <div class="pbj-create-hero"><p class="step-count">THE DIRECTION</p><h1>Describe the video you want</h1><p>Share the feeling, pacing, story, or creator style in your own words.</p></div>
-  <form class="form prompt-first-form pbj-create-form" action="/projects/new/describe" method="post">
-    <label>Project name <span>Optional</span><input name="name" value="{{ draft.name or '' }}" placeholder="Flight day" autocomplete="off"></label>
-    <label>Your direction
-      <textarea class="pbj-recipe-field" name="description" rows="8" required placeholder="Make this feel fast, playful, and chronological, with a strong opening…">{{ draft.description or '' }}</textarea>
-      <small>Plain language is perfect. PBJ handles the editing approach behind the scenes.</small>
-    </label>
-    <div class="wizard-actions"><a class="button secondary" href="/">Back</a><button class="button" type="submit">Next →</button></div>
+<section class="pbj-np2 pbj-screen-exact">
+  <a href="/" class="pbj-back-button pbj-back-floating" aria-label="Back to Home">‹</a>
+  <form class="pbj-np2__form" action="/projects/new/describe" method="post">
+    <div class="pbj-np2__body"><div class="pbj-np2__hero"><h1 class="pbj-np2__title">The Recipe</h1><p class="pbj-np2__subtitle">tell us how you want it cut</p><span class="sr-only">Describe the video you want</span></div>
+      <input type="hidden" name="name" value="{{ draft.name or 'New Project' }}">
+      <div class="pbj-np2__prompt-wrap"><textarea class="pbj-np2__prompt" name="description" rows="1" required placeholder="Make this feel fast, playful, and chronological, with a strong opening…">{{ draft.description or '' }}</textarea></div>
+      <div class="pbj-np2__chips-row" aria-label="Direction ideas"><button type="button" class="pbj-np2__chip" data-idea="Fast-paced with a strong hook">Fast paced</button><button type="button" class="pbj-np2__chip" data-idea="Warm, story-led, and chronological">Story led</button><button type="button" class="pbj-np2__chip" data-idea="Clean and minimal with the best reactions">Clean</button></div>
+    </div><div class="pbj-np2__footer"><button class="button wide" type="submit">Next</button></div>
   </form>
-</section>{% endblock %}
+</section>{% endblock %}{% block scripts %}<script>document.querySelectorAll('[data-idea]').forEach(function(button){button.addEventListener('click',function(){const field=document.querySelector('.pbj-np2__prompt');if(!field.value.trim())field.value=button.dataset.idea;else field.value=field.value.trim().replace(/[. ]*$/,'. ') + button.dataset.idea.toLowerCase();field.focus()})})</script>{% endblock %}
