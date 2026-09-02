@@ -24,7 +24,9 @@ class TroyFaceliftPhase2Tests(unittest.TestCase):
         self.assertIn('href="/projects"', template)
         self.assertIn("pbj-home__mark", template)
         self.assertIn("pbj-home__actions", template)
-        self.assertNotIn("pbj-home__intro", template)
+        self.assertIn("pbj-home__intro", template)
+        self.assertIn("Your footage.", template)
+        self.assertIn("create a first cut you can approve or revise", template)
         self.assertNotIn("pbj-home__recents", template)
         self.assertNotIn("activeRenders", template)
 
