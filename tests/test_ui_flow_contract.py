@@ -60,7 +60,10 @@ class CanonicalUIFlowTests(unittest.TestCase):
             }
             self.store.write_json(export_root / "export.json", export)
             cuts.append(export)
-        self.store.update_project(self.project_id, status="timeline_ready", latest_export=cuts[-1])
+        self.store.update_project(
+            self.project_id, status="timeline_ready", latest_export=cuts[-1],
+            revision_feedback=[{"feedback": "Make the ending faster", "requested_at": "now"}],
+        )
         self.store_patch = patch.object(main_module, "store", self.store)
         self.store_patch.start()
         self.client = TestClient(main_module.app)
@@ -89,24 +92,27 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertIn("<video", response.text)
         self.assertNotIn("openreel", response.text.casefold())
         self.assertNotIn("/static/editor/", response.text)
-        self.assertIn("View all 2 cuts", response.text)
+        self.assertIn("Compare with earlier cuts", response.text)
 
         removed = self.client.get("/projects/%s/openreel" % self.project_id)
         self.assertEqual(removed.status_code, 404)
 
     def test_each_completed_cut_has_its_own_playback_page(self):
-        history = self.client.get("/projects/%s/cuts" % self.project_id)
-        self.assertEqual(history.status_code, 200)
-        self.assertIn("Cut 1", history.text)
-        self.assertIn("Cut 2", history.text)
-        self.assertLess(history.text.index("Cut 2"), history.text.index("Cut 1"))
+        history = self.client.get("/projects/%s/cuts" % self.project_id, follow_redirects=False)
+        self.assertEqual(history.status_code, 303)
+        self.assertIn("/cuts/export-flow-2", history.headers["location"])
 
         first = self.client.get("/projects/%s/cuts/export-flow-1" % self.project_id)
         second = self.client.get("/projects/%s/cuts/export-flow-2" % self.project_id)
         self.assertIn("EARLIER ROUGH CUT", first.text)
-        self.assertIn("LATEST ROUGH CUT", second.text)
+        self.assertIn("CURRENT FINAL CUT", second.text)
         self.assertIn("exports/export-flow-1/download", first.text)
         self.assertIn("exports/export-flow-2/download", second.text)
+        self.assertIn("Original creative brief", first.text)
+        self.assertIn("Next cut", first.text)
+        self.assertIn("Revision prompt for Cut 2", second.text)
+        self.assertIn("Make the ending faster", second.text)
+        self.assertIn("Previous cut", second.text)
 
     def test_legacy_review_and_revision_redirect_to_ready(self):
         for suffix in ("review", "revision"):

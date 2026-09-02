@@ -283,7 +283,7 @@ class TimelineExportService:
         self.compiler = compiler or TimelineFFmpegCompiler(store)
 
     def create(self, project_id: str, timeline_hash: str, *, approve_on_success: bool,
-               approval_confirmation: bool) -> Dict[str, Any]:
+               approval_confirmation: bool, revision_prompt: str = "") -> Dict[str, Any]:
         project = self.store.project(project_id)
         if project.get("status") in ACTIVE_JOB_STATES:
             raise ValueError("Wait for the current project task to finish before exporting")
@@ -302,6 +302,7 @@ class TimelineExportService:
             "status": "queued", "created_at": utc_now(), "timeline_hash": timeline_hash,
             "timeline_path": str(snapshot.relative_to(self.store.data_dir)),
             "approve_on_success": bool(approve_on_success), "approval_confirmation": bool(approval_confirmation),
+            "revision_prompt": revision_prompt.strip() or None,
         }
         self.store.write_json(root / "export.json", record)
         self.store.update_project(project_id, status="export_queued", editor_read_only=True, active_export_id=export_id, active_task="Preparing final export", active_started_at=utc_now())

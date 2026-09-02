@@ -1024,6 +1024,7 @@ async def _run_revision(project_id: str, feedback: str) -> None:
         export = TimelineExportService(store).create(
             project_id, timeline["timeline_hash"],
             approve_on_success=False, approval_confirmation=False,
+            revision_prompt=feedback,
         )
         TimelineExportService(store).run(project_id, export["export_id"])
     except Exception:
@@ -1080,12 +1081,13 @@ async def project_ready_page(request: Request, project_id: str):
 
 @app.get("/projects/{project_id}/cuts", response_class=HTMLResponse)
 async def project_cuts_page(request: Request, project_id: str):
-    project = store.project(project_id)
+    store.project(project_id)
     cuts = TimelineExportService(store).records(project_id, completed_only=True)
-    numbered = [{**cut, "cut_number": index + 1} for index, cut in enumerate(cuts)]
-    return templates.TemplateResponse(request, "project_cuts.html", {
-        "project": project, "cuts": list(reversed(numbered)),
-    })
+    if not cuts:
+        return RedirectResponse("/projects/%s/ready" % project_id, status_code=303)
+    return RedirectResponse(
+        "/projects/%s/cuts/%s" % (project_id, cuts[-1]["export_id"]), status_code=303,
+    )
 
 
 @app.get("/projects/{project_id}/cuts/{export_id}", response_class=HTMLResponse)
@@ -1097,9 +1099,19 @@ async def project_cut_page(request: Request, project_id: str, export_id: str):
         raise HTTPException(404, "Rough cut not found")
     cut_number = cuts.index(selected) + 1
     latest = bool(cuts and cuts[-1].get("export_id") == export_id)
+    feedback_history = project.get("revision_feedback") or []
+    if cut_number == 1:
+        prompt_label = "Original creative brief"
+        prompt = project.get("prompt") or "Create the strongest coherent rough cut from the supplied footage."
+    else:
+        prompt_label = "Revision prompt for Cut %d" % cut_number
+        fallback = feedback_history[cut_number - 2].get("feedback") if len(feedback_history) >= cut_number - 1 else ""
+        prompt = selected.get("revision_prompt") or fallback or "Revision details were not recorded for this historical cut."
     return templates.TemplateResponse(request, "project_cut.html", {
         "project": project, "export": selected, "cut_number": cut_number,
-        "is_latest": latest,
+        "is_latest": latest, "prompt_label": prompt_label, "prompt": prompt,
+        "previous_cut": cuts[cut_number - 2] if cut_number > 1 else None,
+        "next_cut": cuts[cut_number] if cut_number < len(cuts) else None,
     })
 
 

@@ -2,13 +2,18 @@
 {% block title %}Cut {{ cut_number }} · PBJ{% endblock %}
 {% block content %}
 <section class="pbj-ready-page">
-  <header class="pbj-cooking-top"><a class="pbj-back-button" href="/projects/{{ project.project_id }}/cuts" aria-label="Back to all cuts">‹</a><span>Cut {{ cut_number }}</span><span></span></header>
+  <header class="pbj-cooking-top"><a class="pbj-back-button" href="/projects/{{ project.project_id }}/ready" aria-label="Back to project review">‹</a><span>Cut {{ cut_number }}</span><span></span></header>
   <div class="pbj-roughcut-player"><video controls playsinline preload="metadata" src="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download"></video></div>
-  <div class="pbj-ready-copy"><p class="eyebrow">{{ 'LATEST ROUGH CUT' if is_latest else 'EARLIER ROUGH CUT' }}</p><h1>Cut {{ cut_number }}</h1><p>{{ 'This is the newest version and remains available on the main review screen.' if is_latest else 'This version is preserved for comparison. Approval and revisions remain attached to the newest cut.' }}</p></div>
+  <div class="pbj-ready-copy"><p class="eyebrow">{{ 'CURRENT FINAL CUT' if is_latest else 'EARLIER ROUGH CUT' }}</p><h1>Cut {{ cut_number }}</h1><p>{{ 'This is the newest rendered version.' if is_latest else 'This version is preserved for comparison.' }}</p></div>
+  <div class="pbj-cut-prompt"><span>{{ prompt_label }}</span><p>{{ prompt }}</p></div>
+  <nav class="pbj-cut-pagination" aria-label="Rough cut versions">
+    {% if previous_cut %}<a class="button secondary" href="/projects/{{ project.project_id }}/cuts/{{ previous_cut.export_id }}">‹ Previous cut</a>{% else %}<span></span>{% endif %}
+    <strong>Cut {{ cut_number }}</strong>
+    {% if next_cut %}<a class="button" href="/projects/{{ project.project_id }}/cuts/{{ next_cut.export_id }}">Next cut ›</a>{% else %}<span></span>{% endif %}
+  </nav>
   <div class="pbj-ready-actions">
     {% if is_latest %}<a class="button large wide" href="/projects/{{ project.project_id }}/ready">Review latest cut</a>{% endif %}
     <a class="button text wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download Cut {{ cut_number }}</a>
-    <a class="button text wide" href="/projects/{{ project.project_id }}/cuts">All cuts</a>
   </div>
 </section>
 {% endblock %}
