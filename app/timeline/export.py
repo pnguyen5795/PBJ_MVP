@@ -310,6 +310,21 @@ class TimelineExportService:
     def record(self, project_id: str, export_id: str) -> Dict[str, Any]:
         return self.store.read_json(self.store.project_dir(project_id) / "exports" / export_id / "export.json")
 
+    def records(self, project_id: str, *, completed_only: bool = False) -> list[Dict[str, Any]]:
+        """Return durable render versions oldest-first without trusting the latest pointer."""
+        root = self.store.project_dir(project_id) / "exports"
+        records = []
+        for path in root.glob("*/export.json") if root.exists() else []:
+            try:
+                record = self.store.read_json(path)
+            except (OSError, ValueError):
+                continue
+            if completed_only and record.get("status") != "complete":
+                continue
+            records.append(record)
+        records.sort(key=lambda item: (item.get("created_at") or "", item.get("export_id") or ""))
+        return records
+
     def run(self, project_id: str, export_id: str) -> Dict[str, Any]:
         from .learning import approve_timeline_export
         root = self.store.project_dir(project_id) / "exports" / export_id

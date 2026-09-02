@@ -44,11 +44,23 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.store.update_project(self.project_id, status="rough_cut_ready", runs=[run], latest_run=run)
         timeline = empty_timeline(self.project_id, [])
         TimelineStore(self.store).initialize(self.project_id, timeline)
-        export = {
-            "export_id": "export-flow-test", "status": "complete",
-            "timeline_path": "projects/%s/timeline/current.json" % self.project_id,
-        }
-        self.store.update_project(self.project_id, status="timeline_ready", latest_export=export)
+        cuts = []
+        for number in (1, 2):
+            export_id = "export-flow-%d" % number
+            export_root = self.store.project_dir(self.project_id) / "exports" / export_id
+            output = export_root / "output.mp4"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(("cut-%d" % number).encode())
+            export = {
+                "export_id": export_id, "status": "complete",
+                "created_at": "2026-09-01T00:00:0%d+00:00" % number,
+                "completed_at": "2026-09-01T00:00:1%d+00:00" % number,
+                "timeline_path": "projects/%s/timeline/current.json" % self.project_id,
+                "output_path": str(output.relative_to(self.store.data_dir)),
+            }
+            self.store.write_json(export_root / "export.json", export)
+            cuts.append(export)
+        self.store.update_project(self.project_id, status="timeline_ready", latest_export=cuts[-1])
         self.store_patch = patch.object(main_module, "store", self.store)
         self.store_patch.start()
         self.client = TestClient(main_module.app)
@@ -75,9 +87,24 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertIn("<video", response.text)
         self.assertNotIn("openreel", response.text.casefold())
         self.assertNotIn("/static/editor/", response.text)
+        self.assertIn("View all 2 cuts", response.text)
 
         removed = self.client.get("/projects/%s/openreel" % self.project_id)
         self.assertEqual(removed.status_code, 404)
+
+    def test_each_completed_cut_has_its_own_playback_page(self):
+        history = self.client.get("/projects/%s/cuts" % self.project_id)
+        self.assertEqual(history.status_code, 200)
+        self.assertIn("Cut 1", history.text)
+        self.assertIn("Cut 2", history.text)
+        self.assertLess(history.text.index("Cut 2"), history.text.index("Cut 1"))
+
+        first = self.client.get("/projects/%s/cuts/export-flow-1" % self.project_id)
+        second = self.client.get("/projects/%s/cuts/export-flow-2" % self.project_id)
+        self.assertIn("EARLIER ROUGH CUT", first.text)
+        self.assertIn("LATEST ROUGH CUT", second.text)
+        self.assertIn("exports/export-flow-1/download", first.text)
+        self.assertIn("exports/export-flow-2/download", second.text)
 
     def test_legacy_review_and_revision_redirect_to_ready(self):
         for suffix in ("review", "revision"):

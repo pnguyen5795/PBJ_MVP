@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Rough cuts · PBJ{% endblock %}
+{% block content %}
+<section class="pbj-cuts-page">
+  <header class="pbj-cooking-top"><a class="pbj-back-button" href="/projects/{{ project.project_id }}/ready" aria-label="Back to latest cut">‹</a><span>Rough Cuts</span><span></span></header>
+  <div class="pbj-ready-copy"><p class="eyebrow">VERSION HISTORY</p><h1>Choose a cut to watch</h1><p>Every completed render stays available. Cut {{ cuts|length }} is the newest.</p></div>
+  <div class="pbj-cut-list">
+    {% for cut in cuts %}
+      <a class="pbj-cut-card" href="/projects/{{ project.project_id }}/cuts/{{ cut.export_id }}">
+        <span><strong>Cut {{ cut.cut_number }}</strong><small>{{ 'Latest version' if loop.first else 'Earlier version' }}</small></span><b>Watch ›</b>
+      </a>
+    {% else %}<p>No completed cuts are available yet.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

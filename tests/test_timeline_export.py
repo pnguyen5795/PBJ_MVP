@@ -97,6 +97,24 @@ class FailingCompiler:
 
 
 class TimelineApprovalLearningTests(TestCase):
+    def test_export_history_is_oldest_first_and_can_filter_completed_versions(self):
+        with TemporaryDirectory() as folder:
+            store = JsonStore(Path(folder) / "data")
+            project_id = "project-20260901-abc123"
+            root = store.projects_dir / project_id
+            store.write_json(root / "manifest.json", {"project_id": project_id})
+            for export_id, status, created_at in (
+                ("export-2", "complete", "2026-09-01T00:00:02+00:00"),
+                ("export-1", "complete", "2026-09-01T00:00:01+00:00"),
+                ("export-3", "failed", "2026-09-01T00:00:03+00:00"),
+            ):
+                store.write_json(root / "exports" / export_id / "export.json", {
+                    "export_id": export_id, "status": status, "created_at": created_at,
+                })
+            service = TimelineExportService(store, compiler=FakeCompiler())
+            self.assertEqual([item["export_id"] for item in service.records(project_id)], ["export-1", "export-2", "export-3"])
+            self.assertEqual([item["export_id"] for item in service.records(project_id, completed_only=True)], ["export-1", "export-2"])
+
     def test_successful_export_approves_once_and_failed_export_cannot(self):
         with TemporaryDirectory() as folder:
             store = JsonStore(Path(folder) / "data")

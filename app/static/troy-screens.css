@@ -54,3 +54,7 @@
 .pbj-revision-panel summary{cursor:pointer;font-weight:700;text-align:center}
 .pbj-revision-panel form{display:grid;gap:12px;margin-top:16px;text-align:left}
 .pbj-revision-panel textarea{width:100%;box-sizing:border-box;border:1px solid rgba(24,16,28,.18);border-radius:16px;padding:14px;font:inherit;background:#fff}
+.pbj-cuts-page{width:min(100%,720px);margin:0 auto;padding:20px 20px calc(32px + env(safe-area-inset-bottom))}
+.pbj-cut-list{display:grid;gap:12px;margin-top:24px}
+.pbj-cut-card{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;border:1px solid rgba(24,16,28,.1);border-radius:20px;background:#fff;color:#18101c;text-decoration:none;box-shadow:0 10px 30px rgba(24,16,28,.06)}
+.pbj-cut-card span{display:grid;gap:4px}.pbj-cut-card small{color:#746d78}.pbj-cut-card b{color:#8b5cf6;white-space:nowrap}

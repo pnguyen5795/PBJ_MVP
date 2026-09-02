@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Cut {{ cut_number }} · PBJ{% endblock %}
+{% block content %}
+<section class="pbj-ready-page">
+  <header class="pbj-cooking-top"><a class="pbj-back-button" href="/projects/{{ project.project_id }}/cuts" aria-label="Back to all cuts">‹</a><span>Cut {{ cut_number }}</span><span></span></header>
+  <div class="pbj-roughcut-player"><video controls playsinline preload="metadata" src="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download"></video></div>
+  <div class="pbj-ready-copy"><p class="eyebrow">{{ 'LATEST ROUGH CUT' if is_latest else 'EARLIER ROUGH CUT' }}</p><h1>Cut {{ cut_number }}</h1><p>{{ 'This is the newest version and remains available on the main review screen.' if is_latest else 'This version is preserved for comparison. Approval and revisions remain attached to the newest cut.' }}</p></div>
+  <div class="pbj-ready-actions">
+    {% if is_latest %}<a class="button large wide" href="/projects/{{ project.project_id }}/ready">Review latest cut</a>{% endif %}
+    <a class="button text wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download Cut {{ cut_number }}</a>
+    <a class="button text wide" href="/projects/{{ project.project_id }}/cuts">All cuts</a>
+  </div>
+</section>
+{% endblock %}

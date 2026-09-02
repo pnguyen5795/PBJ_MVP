@@ -1071,8 +1071,34 @@ async def project_ready_page(request: Request, project_id: str):
             migrate_legacy_project(store, project_id)
         else:
             return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
+    cuts = TimelineExportService(store).records(project_id, completed_only=True)
     return templates.TemplateResponse(request, "project_ready.html", {
-        "project": project, "export": project.get("latest_export") or {},
+        "project": project, "export": project.get("latest_export") or {}, "cuts": cuts,
+    })
+
+
+@app.get("/projects/{project_id}/cuts", response_class=HTMLResponse)
+async def project_cuts_page(request: Request, project_id: str):
+    project = store.project(project_id)
+    cuts = TimelineExportService(store).records(project_id, completed_only=True)
+    numbered = [{**cut, "cut_number": index + 1} for index, cut in enumerate(cuts)]
+    return templates.TemplateResponse(request, "project_cuts.html", {
+        "project": project, "cuts": list(reversed(numbered)),
+    })
+
+
+@app.get("/projects/{project_id}/cuts/{export_id}", response_class=HTMLResponse)
+async def project_cut_page(request: Request, project_id: str, export_id: str):
+    project = store.project(project_id)
+    cuts = TimelineExportService(store).records(project_id, completed_only=True)
+    selected = next((cut for cut in cuts if cut.get("export_id") == export_id), None)
+    if not selected:
+        raise HTTPException(404, "Rough cut not found")
+    cut_number = cuts.index(selected) + 1
+    latest = bool(cuts and cuts[-1].get("export_id") == export_id)
+    return templates.TemplateResponse(request, "project_cut.html", {
+        "project": project, "export": selected, "cut_number": cut_number,
+        "is_latest": latest,
     })
 
 

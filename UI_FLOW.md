@@ -29,6 +29,8 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 | Final details | `/projects/{project_id}/brief` | Add optional requirements and start production. |
 | Production | `/projects/{project_id}/production-progress` | Show truthful analysis, planning/validation, and FFmpeg rendering stages. |
 | Rough-cut review | `/projects/{project_id}/ready` | Play the latest completed MP4 and offer Approve or Request Changes. |
+| Cut history | `/projects/{project_id}/cuts` | List every completed render as a numbered cut. |
+| Individual cut | `/projects/{project_id}/cuts/{export_id}` | Play one preserved cut on its own page. |
 | Approval | `/projects/{project_id}/approval` | Return to the approved cut and expose download/home actions. |
 
 ## Route behavior
@@ -37,6 +39,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - `POST /projects/{project_id}/revise` requires nonempty feedback, replans from cached analysis, validates the new timeline, and renders a new version.
 - `POST /projects/new/references-retry` retries failed recipe synthesis from saved eligible analysis without requiring a replacement upload.
 - Completed videos download from `/projects/{project_id}/exports/{export_id}/download`.
+- Every completed render remains independently playable; approval and revision actions stay attached to the latest cut.
 - Historical `/review`, `/revision`, and `/approval` links resolve into the current rough-cut review experience.
 - `/projects/{project_id}/editor` and `/projects/{project_id}/openreel` do not exist.
 - Retired analyzer selection, manual rough-cut, and comparison endpoints remain removed or redirects.

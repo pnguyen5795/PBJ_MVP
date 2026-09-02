@@ -88,6 +88,7 @@ All roles currently default to `gpt-5.6-luna` with medium reasoning and retain s
 - The review screen must play the latest completed MP4 and expose one primary approval action plus a clear request-changes path.
 - Approval applies only to the latest completed render and requires explicit confirmation.
 - Revision feedback creates a new timeline and render version while retaining the initial baseline and prior artifacts.
+- Completed renders remain visible as numbered cuts, each with its own playback page; only the newest cut exposes the active approval and revision journey.
 
 ## 7. Learning policy
 
