@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pbj
+    name: pbnj
     runtime: docker
     region: oregon
     plan: free
