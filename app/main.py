@@ -23,8 +23,8 @@ from .providers import PROVIDERS
 from .storage import JsonStore, VIDEO_EXTENSIONS, safe_name, utc_now
 from .storage import sha256
 from .timeline.contracts import us_from_seconds
-from .workflows import ProjectAnalysisWorkflow, StyleWorkflow, TimelinePreparationWorkflow
-from .timeline.migration import migrate_legacy_project
+from .workflows import ProjectAnalysisWorkflow, StyleWorkflow, TimelinePreparationWorkflow, failure_fields
+from .timeline.migration import migrate_legacy_project, timeline_from_edit_plan
 from .timeline.storage import StaleTimelineError, TimelineStore
 from .timeline.proxies import ProxyPipeline
 from .timeline.proposals import TimelineProposalService
@@ -1013,8 +1013,13 @@ async def _run_complete_production(project_id: str) -> None:
             approve_on_success=False, approval_confirmation=False,
         )
         TimelineExportService(store).run(project_id, export["export_id"])
-    except Exception:
-        return
+    except Exception as exc:
+        current = store.project(project_id)
+        if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
+            store.update_project(
+                project_id, status="export_failed", active_export_id=None, active_task=None,
+                **failure_fields(exc),
+            )
 
 
 async def _run_revision(project_id: str, feedback: str) -> None:
@@ -1027,8 +1032,13 @@ async def _run_revision(project_id: str, feedback: str) -> None:
             revision_prompt=feedback,
         )
         TimelineExportService(store).run(project_id, export["export_id"])
-    except Exception:
-        return
+    except Exception as exc:
+        current = store.project(project_id)
+        if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
+            store.update_project(
+                project_id, status="export_failed", active_export_id=None, active_task=None,
+                **failure_fields(exc),
+            )
 
 
 @app.post("/projects/{project_id}/brief")
@@ -1468,8 +1478,16 @@ async def retry_failed_rough_cut(project_id: str, background_tasks: BackgroundTa
         project = store.project(project_id)
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
-    if project.get("status") == "export_failed" and TimelineStore(store).exists(project_id):
+    if project.get("status") in {"timeline_ready", "export_failed"} and TimelineStore(store).exists(project_id):
         timeline = TimelineStore(store).load(project_id)
+        latest_run = project.get("latest_run") or {}
+        if latest_run.get("plan_path"):
+            plan = store.read_json(store.resolve_data_path(latest_run["plan_path"]))
+            rebuilt = timeline_from_edit_plan(project, plan)
+            if rebuilt["timeline_hash"] != timeline["timeline_hash"]:
+                timeline = TimelineStore(store).replace_with_ai_revision(
+                    project_id, rebuilt, "Rebuilt saved cut with frame-safe timing",
+                )
         export = TimelineExportService(store).create(
             project_id, timeline["timeline_hash"], approve_on_success=False,
             approval_confirmation=False,

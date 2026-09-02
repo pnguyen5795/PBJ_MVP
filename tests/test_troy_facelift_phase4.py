@@ -34,6 +34,7 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
         for status in ("analysis_failed", "rough_cut_failed", "timeline_failed", "export_failed"):
             self.assertIn(status, template)
         self.assertIn('/projects/{{ project.project_id }}/retry', template)
+        self.assertIn("project.last_error", template)
         self.assertIn('/projects/{{ project.project_id }}/brief', template)
         self.assertIn("project.last_error", template)
         self.assertIn("Technical details", template)

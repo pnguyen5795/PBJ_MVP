@@ -37,6 +37,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 
 - `POST /projects/{project_id}/approve` requires explicit confirmation and approves only the latest completed render.
 - `POST /projects/{project_id}/revise` requires nonempty feedback, replans from cached analysis, validates the new timeline, and renders a new version.
+- `POST /projects/{project_id}/retry` rebuilds a saved plan with frame-safe boundaries before retrying a failed or incomplete export; failures show their recorded cause rather than a generic dead end.
 - `POST /projects/new/references-retry` retries failed recipe synthesis from saved eligible analysis without requiring a replacement upload.
 - Completed videos download from `/projects/{project_id}/exports/{export_id}/download`.
 - Every completed render remains independently playable in one version player with Previous/Next navigation and the prompt that produced that cut; approval and revision actions stay attached to the latest cut.

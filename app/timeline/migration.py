@@ -16,12 +16,14 @@ def timeline_from_edit_plan(project: Dict[str, Any], plan: Dict[str, Any]) -> Di
     })
     tracks = {item["track_id"]: item for item in timeline["tracks"]}
     for index, segment in enumerate(plan.get("video_segments") or [], start=1):
-        duration = frames_from_seconds(float(segment["timeline_end"]) - float(segment["timeline_start"]))
+        start = frames_from_seconds(segment["timeline_start"])
+        end = frames_from_seconds(segment["timeline_end"])
+        duration = end - start
         group = "link-%03d" % index
         clip = {
             "clip_id": "video-%03d" % index, "kind": "video", "asset_id": segment["source_file_id"],
             "source_in_us": us_from_seconds(segment["source_start"]), "source_out_us": us_from_seconds(segment["source_end"]),
-            "timeline_start_frame": frames_from_seconds(segment["timeline_start"]), "duration_frames": duration,
+            "timeline_start_frame": start, "duration_frames": duration,
             "playback_rate": float(segment.get("speed", 1)), "linked_group_id": group,
             "transform": {"mode": "fit" if segment.get("crop_mode") == "fit" else "fill", "x": float(segment.get("focal_x", .5)), "y": float(segment.get("focal_y", .5)), "scale": max(float(segment.get("zoom_start", 1)), float(segment.get("zoom_end", 1)))},
             "provenance": {"origin": "ai_initial", "style_reasons": segment.get("style_reasons", [])},
@@ -32,7 +34,8 @@ def timeline_from_edit_plan(project: Dict[str, Any], plan: Dict[str, Any]) -> Di
             timeline["transitions"].append({"transition_id": "transition-%03d" % index, "type": "crossfade", "from_clip_id": "video-%03d" % (index - 1), "to_clip_id": clip["clip_id"], "duration_frames": frames_from_seconds(segment["transition_duration"])})
     for index, segment in enumerate(plan.get("audio_segments") or [], start=1):
         start = frames_from_seconds(segment["timeline_start"])
-        duration = frames_from_seconds(float(segment["timeline_end"]) - float(segment["timeline_start"]))
+        end = frames_from_seconds(segment["timeline_end"])
+        duration = end - start
         matching_video = next((item for item in tracks["video-main"]["clips"]
                                if item["asset_id"] == segment["source_file_id"]
                                and item["source_in_us"] == us_from_seconds(segment["source_start"])

@@ -41,6 +41,31 @@ class TimelineDomainTests(TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_plan_frame_boundaries_do_not_create_rounding_gaps(self):
+        plan = {
+            "target": {"width": 1080, "height": 1920},
+            "video_segments": [
+                {
+                    "source_file_id": "raw-001", "source_start": 0, "source_end": 7.6,
+                    "timeline_start": 0, "timeline_end": 7.6, "speed": 1,
+                },
+                {
+                    "source_file_id": "raw-001", "source_start": 0, "source_end": 17.5,
+                    "timeline_start": 7.6, "timeline_end": 25.1, "speed": 1,
+                },
+                {
+                    "source_file_id": "raw-001", "source_start": 0, "source_end": 6.1666667,
+                    "timeline_start": 25.1, "timeline_end": 31.2666667, "speed": 1,
+                },
+            ],
+            "audio_segments": [],
+        }
+        timeline = timeline_from_edit_plan(self.project, plan)
+        clips = timeline["tracks"][0]["clips"]
+        self.assertEqual(clips[0]["timeline_start_frame"] + clips[0]["duration_frames"], clips[1]["timeline_start_frame"])
+        self.assertEqual(clips[1]["timeline_start_frame"] + clips[1]["duration_frames"], clips[2]["timeline_start_frame"])
+        validate_timeline(timeline, for_export=True)
+
     def test_integer_timing_and_source_bounds_are_enforced(self):
         validate_timeline(self.timeline, for_export=True)
         invalid = deepcopy(self.timeline)
