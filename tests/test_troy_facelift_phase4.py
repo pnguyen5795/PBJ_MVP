@@ -46,6 +46,7 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
         self.assertIn("Request changes", template)
         self.assertIn("Create a new version", template)
         self.assertIn("View footage analysis", template)
+        self.assertIn('class="button secondary wide"', template)
         self.assertIn("<video", template)
         self.assertNotIn("/static/editor/", template)
         self.assertNotIn("Studio", template)
