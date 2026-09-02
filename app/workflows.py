@@ -243,19 +243,37 @@ class StyleWorkflow:
 
     @staticmethod
     def _normalize_recipe_evidence(recipe: Dict[str, Any], profile: Dict[str, Any], analyses: List[Dict[str, Any]]) -> None:
-        """Keep model-cited evidence tied to the named segment, tolerating editorial boundary drift."""
+        """Keep model evidence tied to one real segment, repairing only uniquely provable citations."""
         reference_by_alias = {}
         for reference in profile.get("reference_files", []):
             reference_by_alias[reference.get("file_id")] = reference.get("file_id")
             reference_by_alias[reference.get("original_name")] = reference.get("file_id")
         segments = {}
+        segments_by_file = {}
         for analysis in analyses:
             for segment in analysis.get("analysis", {}).get("segments", []):
                 segments.setdefault((analysis.get("file_id"), segment.get("segment_id")), []).append(segment)
+                segments_by_file.setdefault(analysis.get("file_id"), []).append(segment)
+        repairs = []
         for rule in recipe.get("rules") or []:
             for evidence in rule.get("evidence") or []:
                 evidence["reference_file_id"] = reference_by_alias.get(evidence.get("reference_file_id"), evidence.get("reference_file_id"))
                 matches = segments.get((evidence.get("reference_file_id"), evidence.get("segment_id")))
+                if not matches:
+                    start, end = evidence.get("start_seconds"), evidence.get("end_seconds")
+                    if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end > start:
+                        candidates = [segment for segment in segments_by_file.get(evidence.get("reference_file_id"), [])
+                                      if float(segment["start_seconds"]) - 0.1 <= float(start)
+                                      and float(segment["end_seconds"]) + 0.1 >= float(end)]
+                        if len(candidates) == 1:
+                            previous = evidence.get("segment_id")
+                            evidence["segment_id"] = candidates[0]["segment_id"]
+                            matches = [candidates[0]]
+                            repairs.append({
+                                "reference_file_id": evidence.get("reference_file_id"),
+                                "from_segment_id": previous, "to_segment_id": evidence["segment_id"],
+                                "method": "unique_timestamp_containment",
+                            })
                 if not matches:
                     continue
                 segment = matches[0]
@@ -265,6 +283,8 @@ class StyleWorkflow:
                     start, end = float(segment["start_seconds"]), float(segment["end_seconds"])
                 evidence["start_seconds"] = round(start, 3)
                 evidence["end_seconds"] = round(end, 3)
+        if repairs:
+            recipe.setdefault("synthesis", {}).setdefault("evidence_repairs", []).extend(repairs)
 
     @staticmethod
     def _validate_recipe(recipe: Dict[str, Any], profile: Dict[str, Any], analyses: List[Dict[str, Any]]) -> None:

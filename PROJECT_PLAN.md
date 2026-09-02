@@ -50,6 +50,7 @@ The repository contains the complete proven technical chain:
 - prompt interpretation, invisible recipe matching, and approved-example retrieval;
 - structured rough-cut planning with exact source identifiers and timestamp ranges;
 - deterministic source ownership, range, duration, continuity, transition, and media-policy validation;
+- recipe-evidence segment labels repaired only when the cited reference and timestamp interval identify exactly one analyzer segment, with the repair recorded;
 - unique-only source-name repair and at most two bounded Timeline Repair Agent attempts;
 - canonical timeline creation and versioned AI revisions;
 - FFmpeg H.264/AAC rendering from original project assets;

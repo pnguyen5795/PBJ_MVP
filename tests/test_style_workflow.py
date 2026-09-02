@@ -142,7 +142,7 @@ class StyleWorkflowTests(unittest.TestCase):
         corrections = [item for item in self.store.list_learning_signals(self.style["style_id"]) if item["type"] == "recipe_correction"]
         self.assertEqual(corrections[0]["instruction"], "Prioritize pacing")
 
-    def test_recipe_rejects_evidence_that_was_not_in_analyzer_output(self):
+    def test_recipe_repairs_unknown_segment_only_when_timestamps_prove_one_match(self):
         class InventedEvidenceEngine(FakeDecisionEngine):
             async def synthesize_style(self, analyses):
                 recipe = await super().synthesize_style(analyses)
@@ -150,9 +150,24 @@ class StyleWorkflowTests(unittest.TestCase):
                 return recipe
 
         workflow = StyleWorkflow(self.store, {"gemini": self.gemini}, InventedEvidenceEngine())
-        with self.assertRaises(ValueError):
-            asyncio.run(workflow.analyze(self.style["style_id"], ["gemini"]))
-        self.assertIn("unknown source segment", self.store.style(self.style["style_id"])["last_error"])
+        result = asyncio.run(workflow.analyze(self.style["style_id"], ["gemini"]))
+        evidence = result["recipe"]["rules"][0]["evidence"][0]
+        self.assertEqual(evidence["segment_id"], "segment-001")
+        repairs = result["recipe"]["synthesis"]["evidence_repairs"]
+        self.assertEqual(repairs[0]["method"], "unique_timestamp_containment")
+
+    def test_recipe_rejects_unknown_segment_when_timestamps_are_ambiguous(self):
+        analyzed = analysis("reference-001")
+        analyzed["analysis"]["segments"] = [
+            {**analyzed["analysis"]["segments"][0], "segment_id": "segment-001", "start_seconds": 0, "end_seconds": 1},
+            {**analyzed["analysis"]["segments"][0], "segment_id": "segment-002", "start_seconds": 0, "end_seconds": 1},
+        ]
+        recipe = {"rules": [{"evidence": [{
+            "reference_file_id": "reference-001", "segment_id": "segment-999",
+            "start_seconds": 0, "end_seconds": 1,
+        }]}]}
+        StyleWorkflow._normalize_recipe_evidence(recipe, self.style, [analyzed])
+        self.assertEqual(recipe["rules"][0]["evidence"][0]["segment_id"], "segment-999")
 
     def test_recipe_evidence_boundary_drift_is_clamped_to_real_segment(self):
         recipe = {
