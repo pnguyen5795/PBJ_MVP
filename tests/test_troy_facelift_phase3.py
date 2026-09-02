@@ -42,6 +42,9 @@ class TroyFaceliftPhase3Tests(unittest.TestCase):
         self.assertIn("max-width: 720px", footage)
         self.assertIn("Array.from({length:workers}", footage)
         self.assertIn("Photos or Files", footage)
+        self.assertIn("The length of your cut will come from your creative brief", footage)
+        self.assertNotIn("Target length", footage)
+        self.assertNotIn('name="target_seconds"', footage)
 
     def test_references_remain_optional_private_and_supplied(self):
         references = self.read("app/templates/project_references.html")

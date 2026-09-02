@@ -25,7 +25,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 | Home | `/` | Resume work or start a project. |
 | Describe | `/projects/new` | Capture the desired edit in natural language. |
 | References | `/projects/new/references` | Optionally add finished examples or continue. |
-| Footage | `/projects/new/footage` | Upload only media PBJ may use. |
+| Footage | `/projects/new/footage` | Upload only media PBJ may use in a compact picker; infer target duration from the creative brief rather than showing a separate length control. |
 | Final details | `/projects/{project_id}/brief` | Add optional requirements and start production. |
 | Production | `/projects/{project_id}/production-progress` | Show truthful analysis, planning/validation, and FFmpeg rendering stages. |
 | Rough-cut review | `/projects/{project_id}/ready` | Play the latest completed MP4 and offer Approve or Request Changes. |

@@ -3,22 +3,21 @@
 {% block content %}
 <section class="pbj-np1 pbj-screen-exact">
   <a href="/projects/new/references" class="pbj-back-button pbj-back-floating" aria-label="Back to References">‹</a>
-  <div class="pbj-np1__body"><div class="pbj-np1__hero"><h1 class="pbj-np1__title-display">{{ draft.name or 'New Project' }}</h1><span class="sr-only">Add your raw footage</span></div><div class="pbj-np1__middle"><section class="pbj-np1__section">
+  <div class="pbj-np1__body"><div class="pbj-np1__hero"><p class="eyebrow">ADD YOUR MEDIA</p><h1 class="pbj-np1__title-display">Choose your footage</h1><p class="pbj-np1__intro">Add the videos PBJ may use. The length of your cut will come from your creative brief.</p></div><div class="pbj-np1__middle"><section class="pbj-np1__section">
   {% if uploaded_session %}
   <div class="pbj-np1__clip-grid">{% for file in uploaded_session.files %}<div class="pbj-np1__clip-tile"><span>▶</span><small>{{ file.original_name }}</small></div>{% endfor %}</div><div class="pbj-np1__footer"><a class="button wide" href="/projects/new/brief?session_id={{ uploaded_session.session_id }}">Next</a></div>
   {% else %}
   <form id="footage-upload-form" class="upload-form pbj-np1__form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true">
     <input type="hidden" name="style_id" value="{{ style.style_id if style else '' }}">
-    <input type="hidden" name="target_seconds" value="60">
     <input type="hidden" name="prompt" value="{{ draft.description }}">
     <input type="hidden" name="name" value="{{ draft.name }}">
     <label id="footage-dropzone" class="pbj-np1__dropzone-empty" for="footage-input">
       <input id="footage-input" class="file-input-overlay" type="file" name="footage" accept="video/*" multiple required aria-label="Choose raw footage videos">
-      <span class="pbj-np1__plus">＋</span><strong>Add Footage</strong><small>Photos or Files</small>
+      <span class="pbj-np1__plus">＋</span><span class="pbj-np1__dropzone-copy"><strong>Add videos</strong><small>Choose from Photos or Files</small></span><span class="pbj-np1__choose">Choose</span>
     </label>
     <div id="selected-files" class="selected-files" aria-live="polite"></div>
     <div id="upload-status" class="notice" hidden aria-live="polite"></div>
-    <div class="pbj-np1__duration"><span>Target length</span><strong>60 seconds</strong></div><div class="pbj-np1__footer"><button id="upload-submit" class="button wide" type="submit">Next</button></div>
+    <div class="pbj-np1__footer"><button id="upload-submit" class="button wide" type="submit">Next</button></div>
   </form>
   {% endif %}
   </section></div></div></section>
@@ -75,7 +74,6 @@
     startBody.append('name',form.querySelector('[name=name]').value||'');
     startBody.append('style_id',form.querySelector('[name=style_id]').value);
     startBody.append('prompt',form.querySelector('[name=prompt]').value||'');
-    startBody.append('target_seconds',form.querySelector('[name=target_seconds]').value||'60');
     fetch('/projects/upload-session',{method:'POST',body:startBody})
       .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})})
       .then(function(session){

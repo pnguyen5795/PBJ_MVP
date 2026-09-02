@@ -1,10 +1,10 @@
-const CACHE = "pbj-shell-v16";
+const CACHE = "pbj-shell-v17";
 const SHELL = [
   "/static/app.css",
   "/static/workflow.css",
-  "/static/mobile-v2.css?v=16",
-  "/static/troy-foundation.css?v=16",
-  "/static/troy-screens.css?v=16",
+  "/static/mobile-v2.css?v=17",
+  "/static/troy-foundation.css?v=17",
+  "/static/troy-screens.css?v=17",
   "/static/brand/sandwich-logo.png",
   "/static/brand/sandwich/bottom-bread.png",
   "/static/brand/sandwich/peanut-butter.png",

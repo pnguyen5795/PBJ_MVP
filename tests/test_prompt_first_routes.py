@@ -44,7 +44,8 @@ class PromptFirstProjectFlowTests(unittest.TestCase):
 
         response = self.client.get("/projects/new/footage")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Add your raw footage", response.text)
+        self.assertIn("Choose your footage", response.text)
+        self.assertIn("length of your cut will come from your creative brief", response.text)
         self.assertNotIn("Choose an editing style", response.text)
         self.assertIn('for="footage-input"', response.text)
 
