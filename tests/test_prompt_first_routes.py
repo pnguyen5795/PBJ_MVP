@@ -34,6 +34,7 @@ class PromptFirstProjectFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("This step is optional", response.text)
         self.assertIn('for="reference-input"', response.text)
+        self.assertIn("multiple required", response.text)
         self.assertIn("Tap to choose files", response.text)
 
         response = self.client.post(
@@ -48,6 +49,16 @@ class PromptFirstProjectFlowTests(unittest.TestCase):
         self.assertIn("length of your cut will come from your creative brief", response.text)
         self.assertNotIn("Choose an editing style", response.text)
         self.assertIn('for="footage-input"', response.text)
+
+    def test_missing_reference_file_does_not_silently_skip(self):
+        self.client.post(
+            "/projects/new/describe",
+            data={"name": "Reference test", "description": "Use the example's pacing."},
+        )
+        response = self.client.post("/projects/new/references", data={})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("The video was not attached", response.text)
+        self.assertNotIn("Choose your footage", response.text)
 
     def test_retired_recipe_choice_urls_return_to_prompt_first_flow(self):
         for path in ("/projects/new/saved-style", "/projects/new/engine-decides"):

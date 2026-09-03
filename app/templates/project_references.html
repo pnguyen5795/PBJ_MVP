@@ -4,10 +4,10 @@
   <div class="pbj-teach-it__body"><div class="pbj-teach-it__ask-hero"><h1 class="pbj-teach-it__title">Teach Us Your Style</h1><p class="pbj-teach-it__sub">show us a finished video that feels like what you want</p><span class="sr-only">This step is optional</span></div>
   <form class="reference-project-form pbj-teach-it__form" action="/projects/new/references" method="post" enctype="multipart/form-data">
     <div class="pbj-teach-it__dropzone-wrap"><label class="pbj-teach-it__dropzone" for="reference-input">
-      <input id="reference-input" class="file-input-overlay" type="file" name="references" accept="video/*" multiple aria-label="Choose optional finished reference videos">
+      <input id="reference-input" class="file-input-overlay" type="file" name="references" accept="video/*" multiple required aria-label="Choose optional finished reference videos">
       <span class="pbj-teach-it__plus">＋</span><strong>Choose a video</strong><small>Tap to choose files · up to 5 videos</small>
     </label></div>
-    <div id="reference-files" class="selected-files" aria-live="polite"></div>
+    <div id="reference-files" class="selected-files" aria-live="polite">{% if error %}<div class="notice error">{{ error }}</div>{% endif %}</div>
     <p class="pbj-teach-it__privacy">PBJ studies these privately for this project.</p>
     <div class="pbj-teach-it__footer"><button class="button wide" type="submit">Use Example</button></div></form>
   <form class="pbj-teach-it__skip" action="/projects/new/references" method="post"><input type="hidden" name="skip" value="true"><button type="submit">Skip for now</button></form></div>

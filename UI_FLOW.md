@@ -24,7 +24,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 | Private access | `/access` | Authorize the browser for seven days. In hosted-demo mode, authorized browsers enter the same private workspace. |
 | Home | `/` | Resume work or start a project. |
 | Describe | `/projects/new` | Capture the desired edit in natural language. |
-| References | `/projects/new/references` | Optionally add finished examples or continue. |
+| References | `/projects/new/references` | Optionally add finished examples or explicitly skip. A missing/failed file attachment must remain on this screen with a clear retry message; it must never be interpreted as Skip. |
 | Footage | `/projects/new/footage` | Upload only media PBJ may use in a compact picker; infer target duration from the creative brief rather than showing a separate length control. |
 | Final details | `/projects/{project_id}/brief` | Add optional requirements and start production. |
 | Production | `/projects/{project_id}/production-progress` | Show truthful analysis, planning/validation, and FFmpeg rendering stages. |

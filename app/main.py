@@ -572,11 +572,21 @@ async def save_project_references(
     if not draft or not draft.get("description"):
         return RedirectResponse("/projects/new", status_code=303)
     references = references or []
-    if skip or not references or not any(item.filename for item in references):
+    if skip:
         draft["style_id"] = ""
         request.session["project_draft"] = draft
         return RedirectResponse("/projects/new/footage", status_code=303)
     references = [item for item in references if item.filename]
+    if not references:
+        return templates.TemplateResponse(
+            request,
+            "project_references.html",
+            {
+                "draft": draft,
+                "error": "The video was not attached. Choose it again and wait until its filename appears before tapping Use Example.",
+            },
+            status_code=400,
+        )
     if not 1 <= len(references) <= 5:
         raise HTTPException(400, "Choose up to five finished reference videos.")
     temp_dir = upload_temp_dir("pbj-project-references-")
