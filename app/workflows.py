@@ -524,10 +524,6 @@ class TimelinePreparationWorkflow:
                 timeline = self.timelines.replace_with_ai_revision(project_id, timeline, feedback.strip())
             else:
                 timeline = self.timelines.initialize(project_id, timeline)
-            self.store.update_project(
-                project_id, status="preparing_proxies", active_task="Preparing fast previews for each source clip",
-            )
-            proxy_report = await asyncio.to_thread(self.proxy_pipeline.ensure_project, project)
             initial_path = self.timelines.root(project_id) / "snapshots" / "initial-ai.json"
             self.store.save_learning_signal(project["style_id"], {
                 "source_key": "timeline-initial:%s:%s" % (project_id, timeline["timeline_hash"][:12]),
@@ -540,7 +536,12 @@ class TimelinePreparationWorkflow:
                 project_id, status="timeline_ready", active_task=None, active_revision=None,
                 timeline_hash=timeline["timeline_hash"], timeline_revision=timeline["revision"],
                 initial_timeline_path=str(initial_path.relative_to(self.store.data_dir)),
-                proxy_report=proxy_report, pending_revision_feedback=None,
+                proxy_report={
+                    "skipped": True,
+                    "reason": "Automatic rough cuts render directly from original project media",
+                    "assets": [],
+                },
+                pending_revision_feedback=None,
             )
         except Exception as exc:
             self.store.update_project(

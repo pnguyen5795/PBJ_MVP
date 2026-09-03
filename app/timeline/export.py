@@ -11,6 +11,7 @@ import subprocess
 import time
 
 from ..media import inspect_video
+from ..ffmpeg_runtime import global_options, video_encoder_options
 from ..storage import JsonStore, new_id, sha256 as file_sha256, utc_now
 from .contracts import TIMELINE_FPS, canonical_json, main_video_duration_frames
 from .preview import preview_state_at_frame
@@ -32,7 +33,7 @@ class TimelineFFmpegCompiler:
     def compile_command(self, project: Dict[str, Any], timeline: Dict[str, Any], output: Path) -> List[str]:
         validate_timeline(timeline, for_export=True)
         assets = {item["asset_id"]: item for item in timeline["assets"]}
-        command = ["ffmpeg", "-hide_banner", "-y"]
+        command = ["ffmpeg", "-hide_banner", "-y", *global_options()]
         filters: List[str] = []
         input_index = 0
 
@@ -111,7 +112,7 @@ class TimelineFFmpegCompiler:
             filters.append("anullsrc=r=48000:cl=stereo,atrim=duration=%s[aout]" % self._n(duration))
         command.extend([
             "-filter_complex", ";".join(filters), "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", *video_encoder_options(), "-crf", "20", "-pix_fmt", "yuv420p",
             "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
             "-t", self._n(duration), "-movflags", "+faststart", str(output),
         ])

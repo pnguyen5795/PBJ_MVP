@@ -6,6 +6,7 @@ import subprocess
 import re
 
 from .media import inspect_video
+from .ffmpeg_runtime import global_options, video_encoder_options
 from .storage import JsonStore
 
 
@@ -92,7 +93,7 @@ class FFmpegRenderer:
 
     def build_command(self, project: Dict[str, Any], plan: Dict[str, Any], output_path: Path) -> List[str]:
         sources = {item["file_id"]: self.store.resolve_data_path(item["stored_path"]) for item in project["raw_files"]}
-        command = ["ffmpeg", "-hide_banner", "-y"]
+        command = ["ffmpeg", "-hide_banner", "-y", *global_options()]
         for segment in plan["video_segments"]:
             command.extend(["-i", str(sources[segment["source_file_id"]])])
         for segment in plan["audio_segments"]:
@@ -124,7 +125,7 @@ class FFmpegRenderer:
         filters.append("%sconcat=n=%d:v=0:a=1[aout]" % ("".join(audio_labels), len(audio_labels)))
         command.extend([
             "-filter_complex", ";".join(filters), "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", *video_encoder_options(), "-crf", "20", "-pix_fmt", "yuv420p",
             "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
             "-t", self._n(plan["target_duration_seconds"]), "-movflags", "+faststart", str(output_path),
         ])

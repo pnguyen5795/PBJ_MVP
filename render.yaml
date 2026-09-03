@@ -20,6 +20,8 @@ services:
         value: pbj-private-workspace
       - key: PBJ_HTTPS_ONLY
         value: "true"
+      - key: PBJ_LOW_MEMORY_MODE
+        value: "true"
       - key: PBJ_AGENT_MODEL
         value: gpt-5.6-luna
       - key: PBJ_EDITING_AGENT_MODEL

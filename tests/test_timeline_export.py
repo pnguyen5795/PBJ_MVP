@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, skipUnless
+from unittest.mock import patch
 import shutil
 import subprocess
 
@@ -34,6 +35,22 @@ def populated_timeline(project_id, raw):
 
 @skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
 class TimelineCompilerTests(TestCase):
+    def test_hosted_low_memory_command_bounds_ffmpeg_workers(self):
+        with TemporaryDirectory() as folder, patch.dict("os.environ", {"PBJ_LOW_MEMORY_MODE": "true"}):
+            store = JsonStore(Path(folder) / "data")
+            project_id = "project-20260902-memory"
+            source = store.projects_dir / project_id / "raw" / "source.mp4"
+            source.parent.mkdir(parents=True); source.write_bytes(b"fixture")
+            raw = {"file_id": "raw-001", "stored_path": str(source.relative_to(store.data_dir)),
+                   "sha256": "a" * 64, "metadata": {"duration_seconds": 1, "has_audio": True}}
+            timeline = populated_timeline(project_id, raw)
+            command = TimelineFFmpegCompiler(store).compile_command(
+                {"project_id": project_id, "raw_files": [raw]}, timeline, source.parent / "output.mp4",
+            )
+            self.assertIn("-filter_complex_threads", command)
+            self.assertIn("threads=1:lookahead_threads=1:sync-lookahead=0", command)
+            self.assertEqual(command[command.index("-threads") + 1], "1")
+
     def test_compiler_reads_original_assets_and_produces_verified_output(self):
         with TemporaryDirectory() as folder:
             store = JsonStore(Path(folder) / "data")

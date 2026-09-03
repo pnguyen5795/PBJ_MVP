@@ -9,6 +9,7 @@ import shutil
 import subprocess
 
 from ..media import inspect_video
+from ..ffmpeg_runtime import global_options, video_encoder_options
 from ..storage import JsonStore, utc_now
 
 
@@ -141,9 +142,9 @@ class ProxyPipeline:
         if hdr:
             video_filter = "zscale=t=linear:npl=100,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv," + scale
         command = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *global_options(), "-i", str(source),
             "-map", "0:v:0", "-map", "0:a:0?", "-vf", video_filter, "-r", "30", "-fps_mode", "cfr",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "25", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", *video_encoder_options(), "-crf", "25", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(target),
         ]
         result = subprocess.run(command, capture_output=True, text=True)

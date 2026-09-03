@@ -12,6 +12,7 @@ class HostedDemoConfigTests(unittest.TestCase):
         self.assertIn("plan: free", blueprint)
         self.assertNotIn("disk:", blueprint)
         self.assertIn("value: /tmp/pbj-data", blueprint)
+        self.assertIn("key: PBJ_LOW_MEMORY_MODE\n        value: \"true\"", blueprint)
 
     def test_blueprint_keeps_secrets_out_of_git(self):
         blueprint = (ROOT / "render.yaml").read_text()
