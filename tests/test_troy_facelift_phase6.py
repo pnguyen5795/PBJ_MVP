@@ -26,10 +26,17 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
         for asset in ("mobile-v2.css", "troy-foundation.css", "troy-screens.css"):
             self.assertIn(asset, base)
             self.assertIn(asset, access)
-            self.assertIn(f"/static/{asset}?v=18", worker)
-        self.assertGreaterEqual(base.count("?v=18"), 3)
-        self.assertGreaterEqual(access.count("?v=18"), 3)
-        self.assertIn('const CACHE = "pbj-shell-v18"', worker)
+            self.assertIn(f"/static/{asset}?v=19", worker)
+        self.assertGreaterEqual(base.count("?v=19"), 3)
+        self.assertGreaterEqual(access.count("?v=19"), 3)
+        self.assertIn('const CACHE = "pbj-shell-v19"', worker)
+
+    def test_mobile_shell_keeps_content_inside_gutters_and_safe_areas(self):
+        screens = self.read("app/static/troy-screens.css")
+        self.assertIn("calc(var(--pbj-safe-top) + 16px)", screens)
+        self.assertIn("max(var(--pbj-gutter),var(--pbj-safe-left))", screens)
+        self.assertIn("max(var(--pbj-gutter),var(--pbj-safe-right))", screens)
+        self.assertIn("main:has(> .pbj-screen-exact)", screens)
 
     def test_reduced_motion_and_touch_safe_controls_remain_available(self):
         foundation = self.read("app/static/troy-foundation.css")
