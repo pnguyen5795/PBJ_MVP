@@ -1,11 +1,11 @@
-const CACHE = "pbj-shell-v20";
+const CACHE = "pbj-shell-v21";
 const SHELL = [
   "/offline",
-  "/static/app.css",
-  "/static/workflow.css",
-  "/static/mobile-v2.css?v=19",
-  "/static/troy-foundation.css?v=19",
-  "/static/troy-screens.css?v=19",
+  "/static/app.css?v=21",
+  "/static/workflow.css?v=21",
+  "/static/mobile-v2.css?v=21",
+  "/static/troy-foundation.css?v=21",
+  "/static/troy-screens.css?v=21",
   "/static/brand/sandwich-logo.png",
   "/static/brand/sandwich/bottom-bread.png",
   "/static/brand/sandwich/peanut-butter.png",
@@ -33,7 +33,16 @@ self.addEventListener("fetch", event => {
     return;
   }
   if (url.pathname.startsWith("/static/")) {
-    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request)));
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (!response.ok) {
+          return caches.match(event.request).then(hit => hit || response);
+        }
+        const copy = response.clone();
+        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
   }
 });
 

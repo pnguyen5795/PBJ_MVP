@@ -275,7 +275,11 @@ async def web_manifest():
 
 @app.get("/service-worker.js", include_in_schema=False)
 async def service_worker():
-    return FileResponse(settings.static_dir / "service-worker.js", media_type="application/javascript", headers={"Service-Worker-Allowed": "/"})
+    return FileResponse(
+        settings.static_dir / "service-worker.js",
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+    )
 
 
 def target_seconds_from_prompt(prompt: str, default: int = 60) -> int:

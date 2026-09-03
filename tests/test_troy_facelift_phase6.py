@@ -26,11 +26,12 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
         for asset in ("mobile-v2.css", "troy-foundation.css", "troy-screens.css"):
             self.assertIn(asset, base)
             self.assertIn(asset, access)
-            self.assertIn(f"/static/{asset}?v=19", worker)
-        self.assertGreaterEqual(base.count("?v=19"), 3)
-        self.assertGreaterEqual(access.count("?v=19"), 3)
-        self.assertIn('const CACHE = "pbj-shell-v20"', worker)
+            self.assertIn(f"/static/{asset}?v=21", worker)
+        self.assertGreaterEqual(base.count("?v=21"), 5)
+        self.assertGreaterEqual(access.count("?v=21"), 4)
+        self.assertIn('const CACHE = "pbj-shell-v21"', worker)
         self.assertIn('caches.match("/offline")', worker)
+        self.assertIn("if (!response.ok)", worker)
 
     def test_mobile_shell_keeps_content_inside_gutters_and_safe_areas(self):
         screens = self.read("app/static/troy-screens.css")
