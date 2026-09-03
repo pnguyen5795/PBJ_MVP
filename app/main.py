@@ -4,10 +4,12 @@ from datetime import datetime
 import asyncio
 import io
 import json
+import logging
 import os
 import re
 import shutil
 import tempfile
+import time
 import zipfile
 from threading import Lock
 
@@ -22,7 +24,7 @@ from .contracts import ANALYSIS_SCHEMA, EDIT_PLAN_SCHEMA, STYLE_PROFILE_SCHEMA
 from .editorial_intelligence import interpret_brief, match_recipe
 from .media import ffmpeg_status, inspect_video
 from .providers import PROVIDERS
-from .storage import JsonStore, VIDEO_EXTENSIONS, safe_name, utc_now
+from .storage import ID_PATTERN, JsonStore, VIDEO_EXTENSIONS, new_id, safe_name, utc_now
 from .storage import sha256
 from .timeline.contracts import us_from_seconds
 from .workflows import ProjectAnalysisWorkflow, StyleWorkflow, TimelinePreparationWorkflow, failure_fields
@@ -40,6 +42,9 @@ app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="stat
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 store = JsonStore(settings.data_dir)
 upload_manifest_lock = Lock()
+diagnostic_log_lock = Lock()
+diagnostic_rate_windows = {}
+client_diagnostic_logger = logging.getLogger("pbj.client_diagnostic")
 for _style in store.list_styles():
     try:
         store.backfill_learning_signals(_style["style_id"])
@@ -126,6 +131,90 @@ def is_owner(request: Request) -> bool:
 def require_owner(request: Request) -> None:
     if not is_owner(request):
         raise HTTPException(403, "Owner access is required for this action.")
+
+
+CLIENT_DIAGNOSTIC_EVENTS = {
+    "page_loaded", "files_selected", "session_started", "upload_started",
+    "upload_progress", "upload_retry", "upload_completed", "batch_check_started",
+    "batch_completed", "upload_failed", "visibility_hidden", "visibility_visible",
+    "network_offline", "network_online", "client_error",
+}
+
+
+def bounded_diagnostic_int(value, minimum: int = 0, maximum: int = 2_147_483_648):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return max(minimum, min(maximum, int(value)))
+
+
+def bounded_diagnostic_token(value, maximum: int, fallback=None):
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "_", raw)[:maximum] or fallback
+
+
+@app.post("/diagnostics/client", status_code=204)
+async def record_client_diagnostic(request: Request):
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid diagnostic event")
+    if not isinstance(payload, dict) or payload.get("event") not in CLIENT_DIAGNOSTIC_EVENTS:
+        raise HTTPException(400, "Invalid diagnostic event")
+    session_id = str(payload.get("upload_session_id") or "")
+    if session_id and (not ID_PATTERN.fullmatch(session_id) or not session_id.startswith("upload-")):
+        session_id = ""
+    event = {
+        "schema_version": "1.0",
+        "event_id": new_id("event"),
+        "recorded_at": utc_now(),
+        "event": payload["event"],
+        "upload_session_id": session_id or None,
+        "stage": bounded_diagnostic_token(payload.get("stage"), 48, "unknown"),
+        "file_index": bounded_diagnostic_int(payload.get("file_index"), 1, 1000),
+        "total_files": bounded_diagnostic_int(payload.get("total_files"), 1, 1000),
+        "file_size_bytes": bounded_diagnostic_int(payload.get("file_size_bytes")),
+        "loaded_bytes": bounded_diagnostic_int(payload.get("loaded_bytes")),
+        "percent": bounded_diagnostic_int(payload.get("percent"), 0, 100),
+        "attempt": bounded_diagnostic_int(payload.get("attempt"), 0, 10),
+        "online": payload.get("online") if isinstance(payload.get("online"), bool) else None,
+        "visibility": str(payload.get("visibility") or "")[:16] or None,
+        "connection_type": bounded_diagnostic_token(payload.get("connection_type"), 24),
+        "error_code": bounded_diagnostic_token(payload.get("error_code"), 64),
+        "client_recorded_at": str(payload.get("client_recorded_at") or "")[:40] or None,
+        "user_agent": str(payload.get("user_agent") or "")[:240] or None,
+        "viewport_width": bounded_diagnostic_int(payload.get("viewport_width"), 1, 10000),
+        "viewport_height": bounded_diagnostic_int(payload.get("viewport_height"), 1, 10000),
+    }
+    with diagnostic_log_lock:
+        rate_key = device_id(request)
+        now = time.monotonic()
+        window_started, event_count = diagnostic_rate_windows.get(rate_key, (now, 0))
+        if now - window_started >= 60:
+            window_started, event_count = now, 0
+        if event_count >= 240:
+            raise HTTPException(429, "Diagnostic event rate exceeded")
+        diagnostic_rate_windows[rate_key] = (window_started, event_count + 1)
+        store.append_client_diagnostic(event)
+    # The same allowlisted record goes to stdout so Render retains useful evidence
+    # even when its ephemeral filesystem is cleared by a crash or restart.
+    client_diagnostic_logger.warning("PBJ_CLIENT_DIAGNOSTIC %s", json.dumps(event, separators=(",", ":")))
+    return Response(status_code=204)
+
+
+@app.get("/diagnostics/download")
+async def download_client_diagnostics(request: Request):
+    require_owner(request)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(store.diagnostics_dir.glob("client-events*.jsonl")):
+            archive.write(path, "pbj-diagnostics/" + path.name)
+        archive.writestr("pbj-diagnostics/README.txt", "Privacy-safe PBJ client operational events. Filenames, media, prompts, secrets, and raw exception messages are excluded.\n")
+    return Response(
+        content=buffer.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="pbj-client-diagnostics.zip"'},
+    )
 
 
 def visible_projects(request: Request):

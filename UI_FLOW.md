@@ -33,6 +33,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 | Cut comparison | `/projects/{project_id}/cuts` | Open the newest completed render in the version player. |
 | Individual cut | `/projects/{project_id}/cuts/{export_id}` | Play one preserved cut on its own page. |
 | Approval | `/projects/{project_id}/approval` | Return to the approved cut and expose download/home actions. |
+| Diagnostics export | `/diagnostics/download` | Let an owner download privacy-safe client operational events for support. |
 
 ## Route behavior
 
@@ -48,6 +49,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - Historical `/review`, `/revision`, and `/approval` links resolve into the current rough-cut review experience.
 - `/projects/{project_id}/editor` and `/projects/{project_id}/openreel` do not exist.
 - Retired analyzer selection, manual rough-cut, and comparison endpoints remain removed or redirects.
+- `POST /diagnostics/client` accepts only allowlisted, bounded operational fields; `/diagnostics/download` requires owner access and never contains filenames, media, prompts, credentials, or raw exception text.
 
 ## Current boundaries
 

@@ -59,6 +59,7 @@ The repository contains the complete proven technical chain:
 - separate explicit approval and initial-to-approved learning evidence;
 - project-private feedback, recipe candidates, contradictions, thresholds, and rollback;
 - Troy's iPhone-first presentation wired to PBJ's real routes and state.
+- privacy-safe client diagnostics for upload, connectivity, visibility, and browser failures, with owner-only export and structured Render log output.
 
 OpenReel and the former PBJ manual editor are removed. Historical manual-edit APIs may remain only as non-user-facing timeline infrastructure where tests or migration require them; they are not part of the canonical product journey.
 
@@ -110,6 +111,7 @@ All roles currently default to `gpt-5.6-luna` with medium reasoning and retain s
 - Project-private reference recipes and learning stay isolated to their device until account-level consent exists.
 - Cache reuse never grants access across permission boundaries.
 - Shared Recipe Lab governance requires owner authority and explicit contribution consent.
+- Client diagnostics use a strict allowlist, bounded values, rotation and rate limits; they exclude filenames, media, prompts, access codes, secrets, and raw exception messages.
 - Before broader beta: add durable jobs, authenticated isolation, controlled object storage, encryption, deletion/retention controls, rate limits, and audit-ready authorization.
 
 In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers. Its initial free-tier smoke test uses ephemeral storage, so every upload and result is disposable and may disappear after a restart or deploy. It runs one web process and uses the existing in-process jobs. It is suitable for controlled testing, not important media, simultaneous users, or public distribution.

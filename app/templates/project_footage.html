@@ -34,13 +34,24 @@
   const submit=document.getElementById('upload-submit');
   const status=document.getElementById('upload-status');
   const existingSessionId=form.dataset.sessionId||'';
+  let currentSessionId=existingSessionId;
   const alreadyUploaded={{ (uploaded_session.files if uploaded_session else [])|tojson }};
+  const progressBuckets={};
+  function diagnostic(event,details,useBeacon){
+    const connection=navigator.connection||{};
+    const payload=Object.assign({event:event,upload_session_id:currentSessionId||null,online:navigator.onLine,visibility:document.visibilityState,connection_type:connection.effectiveType||connection.type||null,client_recorded_at:new Date().toISOString(),viewport_width:window.innerWidth,viewport_height:window.innerHeight},details||{});
+    const body=JSON.stringify(payload);
+    if(useBeacon&&navigator.sendBeacon){navigator.sendBeacon('/diagnostics/client',new Blob([body],{type:'application/json'}));return}
+    fetch('/diagnostics/client',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){})
+  }
+  diagnostic('page_loaded',{stage:existingSessionId?'upload_resume':'footage_picker',total_files:alreadyUploaded.length,user_agent:navigator.userAgent});
   function formatSize(bytes){if(bytes<1048576)return Math.max(1,Math.round(bytes/1024))+' KB';return (bytes/1048576).toFixed(1)+' MB'}
   function showFiles(){
     const files=Array.from(input.files||[]);
     list.innerHTML=files.length?'<div class="selected-files-head"><strong>'+files.length+' video'+(files.length===1?'':'s')+' selected</strong><button type="button" id="clear-footage">Clear</button></div>'+files.map(function(file){return '<div class="selected-file"><span>▶</span><div><strong>'+file.name.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})+'</strong><small>'+formatSize(file.size)+'</small></div></div>'}).join(''):'';
     const clear=document.getElementById('clear-footage');
     if(clear)clear.addEventListener('click',function(){input.value='';showFiles()});
+    if(files.length)diagnostic('files_selected',{stage:'footage_picker',total_files:files.length,file_size_bytes:files.reduce(function(sum,file){return sum+file.size},0)});
   }
   ['dragenter','dragover'].forEach(function(name){input.addEventListener(name,function(){zone.classList.add('drag-active')})});
   ['dragleave','drop'].forEach(function(name){input.addEventListener(name,function(){zone.classList.remove('drag-active');setTimeout(showFiles,0)})});
@@ -48,6 +59,8 @@
   function message(text, error){status.hidden=false;status.className='notice '+(error?'error':'');status.textContent=text}
   function fileKey(file){return file.name+'|'+file.size}
   function uploadOne(sessionId, file, index, total, attempt){
+    const attemptNumber=(attempt||0)+1;
+    diagnostic('upload_started',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber});
     return new Promise(function(resolve,reject){
       const request=new XMLHttpRequest();
       request.open('POST','/projects/upload-session/'+encodeURIComponent(sessionId)+'/file');
@@ -55,18 +68,20 @@
         if(event.lengthComputable){
           const percent=Math.round(event.loaded/event.total*100);
           message('Uploading video '+index+' of '+total+' · '+percent+'%');
+          const bucket=Math.min(100,Math.floor(percent/25)*25);
+          if(progressBuckets[index]!==bucket){progressBuckets[index]=bucket;diagnostic('upload_progress',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,loaded_bytes:event.loaded,percent:bucket,attempt:attemptNumber})}
         } else message('Uploading video '+index+' of '+total+'…');
       };
       request.onload=function(){
         let payload={};
         try{payload=JSON.parse(request.responseText||'{}')}catch(e){}
-        if(request.status>=200&&request.status<300)resolve(payload);
-        else reject(new Error(payload.detail||'Video '+index+' could not be uploaded.'));
+        if(request.status>=200&&request.status<300){diagnostic('upload_completed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,loaded_bytes:file.size,percent:100,attempt:attemptNumber});resolve(payload)}
+        else{diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'http_'+request.status});reject(new Error(payload.detail||'Video '+index+' could not be uploaded.'))}
       };
-      request.onerror=function(){reject(new Error('The connection stopped while uploading video '+index+'.'))};
+      request.onerror=function(){diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'xhr_network'});reject(new Error('The connection stopped while uploading video '+index+'.'))};
       const body=new FormData(); body.append('footage',file,file.name); request.send(body);
     }).catch(function(error){
-      if((attempt||0)<2){message('Connection paused. Retrying video '+index+'…');return new Promise(function(resolve){setTimeout(resolve,1200*((attempt||0)+1))}).then(function(){return uploadOne(sessionId,file,index,total,(attempt||0)+1)})}
+      if((attempt||0)<2){diagnostic('upload_retry',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber+1,error_code:'connection_interrupted'});message('Connection paused. Retrying video '+index+'…');return new Promise(function(resolve){setTimeout(resolve,1200*((attempt||0)+1))}).then(function(){return uploadOne(sessionId,file,index,total,(attempt||0)+1)})}
       throw error;
     });
   }
@@ -87,6 +102,8 @@
       .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})});
     sessionRequest
       .then(function(session){
+        currentSessionId=session.session_id;
+        diagnostic('session_started',{stage:existingSessionId?'upload_resume':'session_created',total_files:files.length});
         history.replaceState(null,'','/projects/new/footage?session_id='+encodeURIComponent(session.session_id));
         let nextIndex=0;
         function worker(){
@@ -96,13 +113,17 @@
         }
         const phoneLayout=window.matchMedia('(max-width: 720px), (max-width: 900px) and (max-height: 500px)').matches;
         const workers=phoneLayout?1:2;
-        return Promise.all(Array.from({length:workers},worker)).then(function(){message('All videos uploaded. Checking their media details…');return fetch('/projects/upload-session/'+encodeURIComponent(session.session_id)+'/complete',{method:'POST'})})
+        return Promise.all(Array.from({length:workers},worker)).then(function(){diagnostic('batch_check_started',{stage:'media_inspection',total_files:files.length+alreadyUploaded.length});message('All videos uploaded. Checking their media details…');return fetch('/projects/upload-session/'+encodeURIComponent(session.session_id)+'/complete',{method:'POST'})})
       })
       .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not finish the upload.');return payload})})
-      .then(function(result){message('Upload complete. Opening the final details…');window.location='/projects/new/brief?session_id='+encodeURIComponent(result.session_id)})
-      .catch(function(error){submit.disabled=false;submit.textContent='Upload and review brief →';message(error.message||'The upload stopped. You can try again.',true)})
+      .then(function(result){diagnostic('batch_completed',{stage:'media_inspection',total_files:files.length+alreadyUploaded.length});message('Upload complete. Opening the final details…');window.location='/projects/new/brief?session_id='+encodeURIComponent(result.session_id)})
+      .catch(function(error){diagnostic('upload_failed',{stage:'batch',total_files:files.length+alreadyUploaded.length,error_code:'batch_interrupted'});submit.disabled=false;submit.textContent='Upload and review brief →';message(error.message||'The upload stopped. You can try again.',true)})
   });
-  document.addEventListener('visibilitychange',function(){if(document.hidden&&submit.disabled)message('Upload paused if iPhone suspends PBJ. Completed videos are saved; reopen PBJ to resume.')});
+  document.addEventListener('visibilitychange',function(){diagnostic(document.hidden?'visibility_hidden':'visibility_visible',{stage:submit.disabled?'file_upload':'footage_picker'},true);if(document.hidden&&submit.disabled)message('Upload paused if iPhone suspends PBJ. Completed videos are saved; reopen PBJ to resume.')});
+  window.addEventListener('offline',function(){diagnostic('network_offline',{stage:submit.disabled?'file_upload':'footage_picker'},true)});
+  window.addEventListener('online',function(){diagnostic('network_online',{stage:submit.disabled?'file_upload':'footage_picker'})});
+  window.addEventListener('error',function(){diagnostic('client_error',{stage:'footage_page',error_code:'window_error'})});
+  window.addEventListener('unhandledrejection',function(){diagnostic('client_error',{stage:'footage_page',error_code:'unhandled_rejection'})});
 })();
 </script>
 {% endif %}

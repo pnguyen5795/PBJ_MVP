@@ -45,4 +45,5 @@ PB&J succeeds when users receive useful rendered first cuts and the work require
 - Only a successful, explicitly approved output becomes positive project evidence.
 - One project never directly rewrites a shared source-backed recipe rule.
 - Preserve provenance, permissions, versions, contradictions, reproducibility, and rollback.
+- Operational diagnostics must be privacy-safe: record bounded technical events, never filenames, media, prompts, access codes, secrets, or raw exception text.
 - Do not train a custom model until measurement shows general models are the bottleneck and sufficient permissioned data exists.

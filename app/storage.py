@@ -53,6 +53,7 @@ class JsonStore:
         self.approved_examples_dir = data_dir / "approved_examples"
         self.user_preferences_dir = data_dir / "user_preferences"
         self.learning_suggestions_dir = data_dir / "learning_suggestions"
+        self.diagnostics_dir = data_dir / "diagnostics"
         for path in (
             self.reference_assets_dir,
             self.recipes_dir,
@@ -63,8 +64,19 @@ class JsonStore:
             self.approved_examples_dir,
             self.user_preferences_dir,
             self.learning_suggestions_dir,
+            self.diagnostics_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+
+    def append_client_diagnostic(self, event: Dict[str, Any]) -> None:
+        """Append a bounded structured event; callers must supply allowlisted fields only."""
+        path = self.diagnostics_dir / "client-events.jsonl"
+        if path.exists() and path.stat().st_size >= 5 * 1024 * 1024:
+            rotated = self.diagnostics_dir / "client-events.previous.jsonl"
+            rotated.unlink(missing_ok=True)
+            path.replace(rotated)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n")
 
     @staticmethod
     def write_json(path: Path, value: Dict[str, Any]) -> None:

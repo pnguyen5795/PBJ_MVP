@@ -324,6 +324,45 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertEqual(second.json()["uploaded_files"], 1)
         self.assertEqual(len(self.store.upload_session(upload["session_id"])["files"]), 1)
 
+    def test_client_diagnostics_store_only_allowlisted_private_fields(self):
+        response = self.client.post("/diagnostics/client", json={
+            "event": "upload_failed",
+            "upload_session_id": "upload-20260903-abcdef",
+            "stage": "file_upload",
+            "file_index": 2,
+            "total_files": 16,
+            "file_size_bytes": 123456,
+            "percent": 50,
+            "error_code": "xhr_network",
+            "filename": "private-vacation.mov",
+            "prompt": "a private creative direction",
+            "access_code": "never-store-this",
+            "raw_error": "sensitive stack trace",
+        })
+
+        self.assertEqual(response.status_code, 204)
+        log_text = (self.store.diagnostics_dir / "client-events.jsonl").read_text()
+        saved = json.loads(log_text)
+        self.assertEqual(saved["event"], "upload_failed")
+        self.assertEqual(saved["file_index"], 2)
+        self.assertEqual(saved["error_code"], "xhr_network")
+        self.assertIsNone(saved["connection_type"])
+        for forbidden in ("private-vacation.mov", "private creative direction", "never-store-this", "sensitive stack trace"):
+            self.assertNotIn(forbidden, log_text)
+
+        download = self.client.get("/diagnostics/download")
+        self.assertEqual(download.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+            self.assertIn("pbj-diagnostics/client-events.jsonl", archive.namelist())
+            self.assertIn("upload_failed", archive.read("pbj-diagnostics/client-events.jsonl").decode())
+
+        self.set_session(owner=False)
+        self.assertEqual(self.client.get("/diagnostics/download").status_code, 403)
+
+    def test_client_diagnostics_reject_unknown_events(self):
+        response = self.client.post("/diagnostics/client", json={"event": "capture_everything"})
+        self.assertEqual(response.status_code, 400)
+
     def test_recipe_lab_does_not_expose_analyzer_or_refresh_controls(self):
         style_id = self.store.list_styles()[0]["style_id"]
         response = self.client.get("/styles/%s/analysis" % style_id)

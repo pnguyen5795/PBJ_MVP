@@ -32,6 +32,7 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 - Keep projects private to the originating device in local mode. When `PBJ_SHARED_WORKSPACE=true`, treat all authorized browsers as one intentionally shared private-demo permission boundary; do not describe it as multi-user isolation.
 - Accept resumable upload batches up to 2 GB and do not proxy large video bodies through the web process.
 - Show truthful job progress and failures.
+- Keep client diagnostics privacy-safe and bounded. Never record filenames, media, prompts, access codes, secrets, or raw exception messages; diagnostic downloads require owner access.
 - Do not reintroduce a manual timeline editor. Users watch rendered versions, approve, or request changes in natural language.
 - Give sequential screens an obvious Back control and one context-specific primary action.
 
