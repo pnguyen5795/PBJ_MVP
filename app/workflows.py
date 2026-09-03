@@ -27,6 +27,8 @@ def failure_fields(exc: Exception) -> Dict[str, Any]:
         message = "One uploaded clip is shorter than the video analyzer's 4-second minimum. PBJ will skip clips that are too short when you retry, while reusing completed analysis."
     elif "response_format_invalid" in lowered:
         message = "The video analyzer rejected the requested response format. The technical details were saved for debugging."
+    elif "recipe evidence references an unknown source segment" in lowered:
+        message = "PBJ could not match one recipe citation to the saved video analysis. Try again; the completed analysis will be reused."
     elif "nodename nor servname" in lowered or "connecterror" in lowered:
         message = "The provider could not be reached. Check the internet connection and retry."
     else:
@@ -145,9 +147,7 @@ class StyleWorkflow:
                     self.store.update_style(style_id, reference_files=profile["reference_files"])
             analyses = self.store.style_analyses(style_id)
             synthesis = await self.decision_engine.synthesize_style(analyses)
-            self._normalize_recipe_evidence(synthesis, profile, analyses)
-            self._normalize_recipe_counts(synthesis, profile)
-            self._validate_recipe(synthesis, profile, analyses)
+            synthesis = await self._validated_recipe_with_repair(synthesis, profile, analyses)
             version = self._draft_version(profile)
             base_version = profile.get("recipe_version") if profile.get("recipe_status") == "validated" else None
             recipe = self.store.save_recipe_draft(style_id, synthesis, version, base_version)
@@ -179,6 +179,23 @@ class StyleWorkflow:
             else:
                 self.store.update_style(style_id, status="analysis_failed", **failure_fields(exc))
             raise
+
+    async def _validated_recipe_with_repair(self, recipe: Dict[str, Any], profile: Dict[str, Any],
+                                            analyses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Repair invalid model citations at most twice without repeating paid analysis."""
+        current = recipe
+        for attempt in range(3):
+            self._normalize_recipe_evidence(current, profile, analyses)
+            self._normalize_recipe_counts(current, profile)
+            try:
+                self._validate_recipe(current, profile, analyses)
+                return current
+            except ValueError as exc:
+                repair = getattr(self.decision_engine, "repair_style_evidence", None)
+                if attempt >= 2 or not callable(repair):
+                    raise
+                current = await repair(current, analyses, str(exc))
+        raise ValueError("Recipe evidence could not be validated")
 
     def approve(self, style_id: str) -> Dict[str, Any]:
         profile = self.store.style(style_id)

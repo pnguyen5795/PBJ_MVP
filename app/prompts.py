@@ -1,5 +1,6 @@
 VIDEO_ANALYSIS_PROMPT_VERSION = "video-analysis-v1"
 STYLE_SYNTHESIS_PROMPT_VERSION = "recipe-synthesis-v1"
+STYLE_EVIDENCE_REPAIR_PROMPT_VERSION = "recipe-evidence-repair-v1"
 STYLE_REVISION_PROMPT_VERSION = "recipe-revision-v1"
 CANDIDATE_SELECTION_PROMPT_VERSION = "candidate-selection-v2"
 ROUGH_CUT_PLAN_PROMPT_VERSION = "rough-cut-plan-v2"
@@ -55,6 +56,19 @@ background made from the same supplied footage.
 
 Reference analyses:
 {analyses_json}
+""".strip()
+
+STYLE_EVIDENCE_REPAIR_PROMPT = """
+Repair only the evidence citations in this internal editing recipe. Return the
+entire recipe using the supplied schema. Every evidence item must copy an exact
+file_id and segment_id from the reference analyses, and its timestamp range must
+fall entirely inside that exact segment. Preserve valid rules, meaning,
+classification, uncertainty, conflicts, and renderer-support decisions. Remove
+a rule only if no real analyzed segment supports it. Never invent evidence.
+
+Validation failure: {failure}
+Invalid recipe: {recipe_json}
+Reference analyses: {analyses_json}
 """.strip()
 
 STYLE_REVISION_PROMPT = """

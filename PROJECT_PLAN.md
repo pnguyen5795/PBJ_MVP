@@ -48,6 +48,7 @@ The repository contains the complete proven technical chain:
 - provider-neutral normalized evidence and combined content maps;
 - checksum/purpose/provider/model/prompt/permission-aware analysis reuse;
 - evidence-backed recipe synthesis, immutable approved versions, and pinned project snapshots;
+- deterministic recipe-evidence validation plus at most two Learning Agent citation-repair attempts that reuse completed analysis;
 - prompt interpretation, invisible recipe matching, and approved-example retrieval;
 - structured rough-cut planning with exact source identifiers and timestamp ranges;
 - deterministic source ownership, range, duration, continuity, transition, and media-policy validation;
@@ -75,7 +76,7 @@ Receives the proposed plan plus a concrete deterministic validation failure. It 
 
 ### Learning Agent
 
-Classifies approved-outcome and feedback evidence into project, preference, recipe, or platform candidates. It cannot approve, promote, or rewrite shared knowledge.
+Classifies approved-outcome and feedback evidence into project, preference, recipe, or platform candidates. During reference synthesis, it may also repair invalid evidence citations after receiving the exact deterministic failure, with at most two attempts and no repeated media analysis. It cannot approve, promote, or rewrite shared knowledge.
 
 All roles currently default to `gpt-5.6-luna` with medium reasoning and retain separate role, prompt, model, response, and usage provenance.
 

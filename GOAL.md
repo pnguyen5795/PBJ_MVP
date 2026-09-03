@@ -18,7 +18,7 @@ PBJ does not include OpenReel or a manual timeline editor. The canonical product
 
 Restore and harden the proven Twelve Labs → OpenAI → validated timeline → FFmpeg workflow while retaining Recipe Engine v1, Troy's approved iPhone-first presentation, versioned recipes, approved-example retrieval, bounded repair, and controlled learning.
 
-Three bounded OpenAI roles support the journey: the Editing Agent plans cuts, the Timeline Repair Agent receives exact validation failures and gets at most two attempts, and the Learning Agent classifies reference and approved-outcome evidence. Agents return structured proposals only; application code owns validation, persistence, rendering, approval, and governance.
+Three bounded OpenAI roles support the journey: the Editing Agent plans cuts, the Timeline Repair Agent receives exact validation failures and gets at most two attempts, and the Learning Agent classifies reference and approved-outcome evidence. When a synthesized recipe cites nonexistent analyzer evidence, the Learning Agent may receive that concrete validation failure for at most two citation-repair attempts; completed media analysis is reused. Agents return structured proposals only; application code owns validation, persistence, rendering, approval, and governance.
 
 The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. The web service uses 1 CPU and 2 GB RAM, but its `/tmp` project storage remains disposable; it is not multi-user or durable release architecture.
 

@@ -171,6 +171,31 @@ class StyleWorkflowTests(unittest.TestCase):
         repairs = result["recipe"]["synthesis"]["evidence_repairs"]
         self.assertEqual(repairs[0]["method"], "unique_timestamp_containment")
 
+    def test_recipe_uses_bounded_agent_repair_when_citation_cannot_be_normalized(self):
+        class RepairingEvidenceEngine(FakeDecisionEngine):
+            def __init__(self):
+                self.repairs = 0
+
+            async def synthesize_style(self, analyses):
+                recipe = await super().synthesize_style(analyses)
+                recipe["rules"][0]["evidence"][0].update({
+                    "segment_id": "invented-segment", "start_seconds": 8, "end_seconds": 9,
+                })
+                return recipe
+
+            async def repair_style_evidence(self, recipe, analyses, failure):
+                self.repairs += 1
+                repaired = await super().synthesize_style(analyses)
+                repaired["synthesis"]["prompt_version"] = "recipe-evidence-repair-v1"
+                return repaired
+
+        engine = RepairingEvidenceEngine()
+        workflow = StyleWorkflow(self.store, {"gemini": self.gemini}, engine)
+        result = asyncio.run(workflow.analyze(self.style["style_id"], ["gemini"]))
+        self.assertEqual(result["status"], "ready_for_review")
+        self.assertEqual(engine.repairs, 1)
+        self.assertEqual(result["recipe"]["rules"][0]["evidence"][0]["segment_id"], "segment-001")
+
     def test_recipe_rejects_unknown_segment_when_timestamps_are_ambiguous(self):
         analyzed = analysis("reference-001")
         analyzed["analysis"]["segments"] = [

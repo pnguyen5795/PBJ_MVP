@@ -22,7 +22,7 @@ The OpenAI layer has three bounded roles: Editing Agent, Timeline Repair Agent, 
 - Only an explicitly approved successful render is positive project evidence.
 - Agents return schema-valid proposals only. Application code validates and renders. The Repair Agent receives concrete failures and gets at most two attempts. The Learning Agent cannot promote shared recipes.
 - Normalize a model-provided source name only when it resolves to exactly one project-owned media ID. Never guess between files.
-- Repair an unknown recipe-evidence segment label only when its named reference and timestamp interval identify exactly one analyzer segment, and record the repair. Ambiguous citations remain failures.
+- Repair an unknown recipe-evidence segment label deterministically only when its named reference and timestamp interval identify exactly one analyzer segment, and record the repair. Otherwise, the Learning Agent may receive the concrete validation failure for at most two structured citation-repair attempts using saved analysis. Ambiguous citations that remain after those attempts are failures.
 
 ## Private-beta UX rules
 

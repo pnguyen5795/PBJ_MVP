@@ -11,6 +11,7 @@ from .prompts import (
     PLANNER_POLICY_VERSION, ROUGH_CUT_PLAN_PROMPT, ROUGH_CUT_PLAN_PROMPT_VERSION,
     STYLE_REVISION_PROMPT, STYLE_REVISION_PROMPT_VERSION,
     STYLE_SYNTHESIS_PROMPT, STYLE_SYNTHESIS_PROMPT_VERSION,
+    STYLE_EVIDENCE_REPAIR_PROMPT, STYLE_EVIDENCE_REPAIR_PROMPT_VERSION,
     TIMELINE_REPAIR_PROMPT, TIMELINE_REPAIR_PROMPT_VERSION,
 )
 
@@ -39,6 +40,32 @@ class OpenAIDecisionEngine:
         result["synthesis"] = {
             "provider": "openai", **metadata,
             "prompt_version": STYLE_SYNTHESIS_PROMPT_VERSION,
+        }
+        return result
+
+    async def repair_style_evidence(self, recipe: Dict[str, Any], analyses: List[Dict[str, Any]],
+                                    failure: str) -> Dict[str, Any]:
+        if not self.configured():
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        return await asyncio.to_thread(self._repair_style_evidence_sync, recipe, analyses, failure)
+
+    def _repair_style_evidence_sync(self, recipe: Dict[str, Any], analyses: List[Dict[str, Any]],
+                                    failure: str) -> Dict[str, Any]:
+        evidence = [{
+            "file_id": item.get("file_id"), "provider": item.get("provider"),
+            "model": item.get("model"), "analysis": item.get("analysis"),
+        } for item in analyses]
+        result, metadata = self.runtime.run_structured(
+            "learning", "editing_recipe_evidence_repair", STYLE_SYNTHESIS_JSON_SCHEMA,
+            STYLE_EVIDENCE_REPAIR_PROMPT.format(
+                failure=failure,
+                recipe_json=json.dumps(recipe, ensure_ascii=False),
+                analyses_json=json.dumps(evidence, ensure_ascii=False),
+            ),
+        )
+        result["synthesis"] = {
+            "provider": "openai", **metadata,
+            "prompt_version": STYLE_EVIDENCE_REPAIR_PROMPT_VERSION,
         }
         return result
 
