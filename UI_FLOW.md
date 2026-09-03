@@ -62,6 +62,6 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - The shared shell has no persistent bottom navigation bar.
 - Every sequential screen has an obvious Back action and one context-specific primary action where truthful.
 - Local mode keeps projects isolated to their originating device. Explicit hosted-demo mode maps every authorized browser to one shared private workspace; it is not a multi-user beta.
-- The initial free hosted-demo deployment is a disposable smoke test: project media and results may vanish after Render sleeps, restarts, or redeploys. The UI flow is unchanged, but important projects require the later persistent-storage upgrade.
+- The hosted demo runs on a 1 CPU / 2 GB Render web service but still uses disposable storage: project media and results may vanish after restarts or redeploys. The UI flow is unchanged, but important projects require the later persistent-storage upgrade.
 
 Any intentional flow change requires matching updates to this file, `PROJECT_PLAN.md`, live routes/templates, and route-contract tests.

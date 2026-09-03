@@ -114,7 +114,7 @@ All roles currently default to `gpt-5.6-luna` with medium reasoning and retain s
 - Client diagnostics use a strict allowlist, bounded values, rotation and rate limits; they exclude filenames, media, prompts, access codes, secrets, and raw exception messages.
 - Before broader beta: add durable jobs, authenticated isolation, controlled object storage, encryption, deletion/retention controls, rate limits, and audit-ready authorization.
 
-In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers. Its initial free-tier smoke test uses ephemeral storage, so every upload and result is disposable and may disappear after a restart or deploy. It runs one web process and uses the existing in-process jobs. It is suitable for controlled testing, not important media, simultaneous users, or public distribution.
+In local mode, project-private reference recipes and learning stay isolated to their originating device. The hosted-demo configuration is intentionally narrower than the broader beta: one access-code-protected workspace is shared across its authorized browsers. Its 1 CPU / 2 GB RAM web service still uses ephemeral storage, so every upload and result is disposable and may disappear after a restart or deploy. It runs one web process and uses the existing in-process jobs. It is suitable for controlled testing, not important media, simultaneous users, or public distribution.
 
 ## 9. iPhone-first private-beta UX
 
@@ -144,7 +144,7 @@ Measure first-cut approval, selected-source retention, duration retention, openi
 
 Add durable jobs, cloud storage, authentication/authorization, consent, deletion, recovery, observability, and push notifications. Test on physical iPhones.
 
-The first Stage 4 checkpoint is a free Render smoke test with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and explicitly disposable storage. The hosted smoke test limits FFmpeg filter/encoder concurrency, input probe buffers, lookahead, and reference frames; uses a zero-latency ultrafast encoder path; keeps FFprobe and FFmpeg work off the web event loop; and skips unused editor-proxy transcoding in the automatic rough-cut path to stay within the free instance's resource ceiling. This trades compression efficiency for lower peak memory while retaining the 1080×1920 output contract. After validation, upgrade compute and attach persistent storage before retaining real projects. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
+The first Stage 4 checkpoint uses a Render web service with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and explicitly disposable storage. After free-tier rendering exhausted the 512 MB memory ceiling, the service was vertically scaled to 1 CPU / 2 GB RAM and the emergency low-memory encoder mode was disabled. FFprobe and FFmpeg work remain off the web event loop, and the automatic rough-cut path continues to skip unused editor-proxy transcoding because those are general reliability improvements. Attach persistent storage before retaining real projects. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
 
 ### Stage 5 — Public readiness
 
@@ -188,9 +188,9 @@ Proceed only after useful first cuts are consistent, privacy/security gates pass
 
 ## 13. Immediate next actions
 
-1. Deploy the free `codex/hosted-demo` smoke-test configuration to the PBJ Render workspace using only disposable sample footage.
-2. Enter secrets only in Render and run an end-to-end supplied-media walkthrough against the hosted URL.
-3. Verify access-code protection and physical-iPhone playback, then upgrade compute and attach storage before testing persistence or important projects.
+1. Keep the `codex/hosted-demo` Blueprint aligned with the live 1 CPU / 2 GB Render web service and use only disposable sample footage.
+2. Run a complete supplied-media walkthrough against the hosted URL and verify that FFmpeg finishes without a memory restart.
+3. Verify access-code protection and physical-iPhone playback, then attach persistent storage before testing persistence or important projects.
 4. Complete durable job and object-storage architecture before inviting multiple users.
 5. Measure quality and revision burden across representative projects.
 

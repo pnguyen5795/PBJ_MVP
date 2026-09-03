@@ -6,13 +6,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class HostedDemoConfigTests(unittest.TestCase):
-    def test_blueprint_is_free_and_has_no_paid_disk(self):
+    def test_blueprint_uses_two_gigabyte_compute_and_has_no_paid_disk(self):
         blueprint = (ROOT / "render.yaml").read_text()
         self.assertIn("name: pbnj", blueprint)
-        self.assertIn("plan: free", blueprint)
+        self.assertIn("plan: 1c-2g", blueprint)
         self.assertNotIn("disk:", blueprint)
         self.assertIn("value: /tmp/pbj-data", blueprint)
-        self.assertIn("key: PBJ_LOW_MEMORY_MODE\n        value: \"true\"", blueprint)
+        self.assertIn("key: PBJ_LOW_MEMORY_MODE\n        value: \"false\"", blueprint)
 
     def test_blueprint_keeps_secrets_out_of_git(self):
         blueprint = (ROOT / "render.yaml").read_text()
