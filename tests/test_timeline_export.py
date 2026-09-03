@@ -35,6 +35,11 @@ def populated_timeline(project_id, raw):
 
 @skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
 class TimelineCompilerTests(TestCase):
+    def test_hosted_mode_always_bounds_ffmpeg_concurrency(self):
+        with patch.dict("os.environ", {"PBJ_HOSTED_MODE": "true", "PBJ_LOW_MEMORY_MODE": "false"}):
+            from app.ffmpeg_runtime import low_memory_mode
+            self.assertTrue(low_memory_mode())
+
     def test_hosted_low_memory_command_bounds_ffmpeg_workers(self):
         with TemporaryDirectory() as folder, patch.dict("os.environ", {"PBJ_LOW_MEMORY_MODE": "true"}):
             store = JsonStore(Path(folder) / "data")
@@ -48,10 +53,10 @@ class TimelineCompilerTests(TestCase):
                 {"project_id": project_id, "raw_files": [raw]}, timeline, source.parent / "output.mp4",
             )
             self.assertIn("-filter_complex_threads", command)
-            self.assertIn("threads=1:lookahead_threads=1:sync-lookahead=0:rc-lookahead=0:ref=1:bframes=0", command)
+            self.assertIn("threads=1:lookahead_threads=1:sync-lookahead=0", command)
             self.assertEqual(command[command.index("-threads") + 1], "1")
-            self.assertEqual(command[command.index("-preset") + 1], "ultrafast")
-            self.assertEqual(command[command.index("-tune") + 1], "zerolatency")
+            self.assertEqual(command[command.index("-preset") + 1], "medium")
+            self.assertNotIn("-tune", command)
             self.assertEqual(command.count("-probesize"), 2)
             self.assertEqual(command.count("-analyzeduration"), 2)
 
