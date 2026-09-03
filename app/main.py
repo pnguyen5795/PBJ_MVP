@@ -553,13 +553,10 @@ async def delete_style(request: Request, style_id: str):
 async def _run_style_analysis(style_id: str, provider: str) -> None:
     try:
         await StyleWorkflow(store).analyze(style_id, [provider], refresh=False)
-    except Exception as exc:
-        try:
-            TimelineStore(store).mark_asset_analysis_failed(project_id, asset_id, str(exc))
-            store.update_project(project_id, status="timeline_ready", active_task=None,
-                                 last_error="The new video was added, but its optional AI analysis did not finish: %s" % exc)
-        except Exception:
-            pass
+    except Exception:
+        # StyleWorkflow records a bounded, user-safe failure on the style. The
+        # background task must not reference unrelated project/editor state.
+        return
 
 
 @app.post("/styles/{style_id}/analyze")

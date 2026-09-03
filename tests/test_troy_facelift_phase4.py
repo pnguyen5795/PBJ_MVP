@@ -54,7 +54,8 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
     def test_reference_learning_uses_real_reload_and_error_state(self):
         template = self.read("app/templates/project_references_progress.html")
         self.assertIn("style.last_error", template)
-        self.assertIn("location.reload()", template)
+        self.assertIn("pbjSafeRefresh(3000)", template)
+        self.assertNotIn("location.reload()", template)
         self.assertIn("Try different examples", template)
         self.assertIn("Try this analysis again", template)
         self.assertIn("/projects/new/references-retry", template)

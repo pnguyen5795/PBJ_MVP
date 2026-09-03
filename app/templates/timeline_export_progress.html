@@ -15,4 +15,4 @@
   {% endif %}
 </section>
 {% endblock %}
-{% block scripts %}{% if export.status not in ['failed','complete'] %}<script>setTimeout(function(){location.reload()},2500)</script>{% endif %}{% endblock %}
+{% block scripts %}{% if export.status not in ['failed','complete'] %}<script>pbjSafeRefresh(2500)</script>{% endif %}{% endblock %}

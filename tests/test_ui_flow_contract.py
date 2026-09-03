@@ -367,6 +367,15 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertLess(responsive_after, 0.2)
         self.assertEqual(completed.status_code, 200)
 
+    def test_progress_pages_keep_current_screen_during_transient_gateway_failure(self):
+        self.store.update_project(self.project_id, status="analysis_queued")
+        response = self.client.get("/projects/%s/production-progress" % self.project_id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("pbjSafeRefresh(3000)", response.text)
+        self.assertIn("if(response.ok&&contentType.includes('text/html'))", response.text)
+        self.assertNotIn("location.reload()", response.text)
+
     def test_client_diagnostics_store_only_allowlisted_private_fields(self):
         response = self.client.post("/diagnostics/client", json={
             "event": "upload_failed",

@@ -35,6 +35,24 @@ document.addEventListener('submit',function(e){const form=e.target;if(!form.matc
 document.querySelectorAll('[data-elapsed-timer]').forEach(function(timer){const output=timer.querySelector('strong');const parsed=Date.parse(timer.dataset.startedAt||'');const started=Number.isFinite(parsed)?parsed:Date.now();function update(){const total=Math.max(0,Math.floor((Date.now()-started)/1000));const hours=Math.floor(total/3600);const minutes=Math.floor((total%3600)/60);const seconds=total%60;output.textContent=(hours?String(hours).padStart(2,'0')+':':'')+String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0')}update();setInterval(update,1000)});
 if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(items=>items.forEach(item=>item.unregister())).catch(()=>{});}
 if('caches' in window){caches.keys().then(keys=>keys.filter(key=>key.startsWith('pbj-shell-')).forEach(key=>caches.delete(key))).catch(()=>{});}
+window.pbjSafeRefresh=function(delay){
+  let wait=Math.max(1000,Number(delay)||3000);
+  async function refresh(){
+    try{
+      const response=await fetch(window.location.href,{credentials:'same-origin',cache:'no-store',headers:{'X-PBJ-Progress-Poll':'1'}});
+      const contentType=response.headers.get('content-type')||'';
+      if(response.ok&&contentType.includes('text/html')){
+        const html=await response.text();
+        if(response.url)history.replaceState(null,'',response.url);
+        document.open();document.write(html);document.close();
+        return;
+      }
+    }catch(error){}
+    wait=Math.min(10000,Math.round(wait*1.5));
+    window.setTimeout(refresh,wait);
+  }
+  window.setTimeout(refresh,wait);
+};
 </script>
 {% block scripts %}{% endblock %}
 </body></html>

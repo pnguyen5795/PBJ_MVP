@@ -45,4 +45,4 @@
   {% endif %}
 </section>
 {% endblock %}
-{% block scripts %}{% if status not in ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}<script>setTimeout(function(){location.reload()},3000)</script>{% endif %}{% endblock %}
+{% block scripts %}{% if status not in ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}<script>pbjSafeRefresh(3000)</script>{% endif %}{% endblock %}
