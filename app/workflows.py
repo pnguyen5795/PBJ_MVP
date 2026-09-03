@@ -16,17 +16,36 @@ from .timeline.storage import TimelineStore
 def failure_fields(exc: Exception) -> Dict[str, Any]:
     technical = str(exc)
     lowered = technical.lower()
+    status_code = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    headers = getattr(exc, "headers", None)
+    provider_code = body.get("code") if isinstance(body, dict) else None
+    provider_message = body.get("message") if isinstance(body, dict) else None
     if "insufficient_quota" in lowered or "exceeded your current quota" in lowered:
         message = "OpenAI has no API quota available. Add billing or credits in the OpenAI API account, then retry; completed video analysis will be reused."
+    elif provider_code == "video_duration_too_short":
+        message = "One uploaded clip is shorter than the video analyzer's 4-second minimum. PBJ will skip clips that are too short when you retry, while reusing completed analysis."
     elif "response_format_invalid" in lowered:
         message = "The video analyzer rejected the requested response format. The technical details were saved for debugging."
     elif "nodename nor servname" in lowered or "connecterror" in lowered:
         message = "The provider could not be reached. Check the internet connection and retry."
     else:
         message = technical if len(technical) <= 500 else technical[:497] + "..."
+    diagnostic_message = provider_message or technical
+    details = {
+        "type": type(exc).__name__,
+        "message": diagnostic_message if len(diagnostic_message) <= 1000 else diagnostic_message[:997] + "...",
+        "recorded_at": utc_now(),
+    }
+    if status_code is not None:
+        details["status_code"] = status_code
+    if provider_code:
+        details["provider_code"] = provider_code
+    if isinstance(headers, dict) and headers.get("x-trace-id"):
+        details["trace_id"] = headers["x-trace-id"]
     return {
         "last_error": message,
-        "last_error_details": {"type": type(exc).__name__, "message": technical, "recorded_at": utc_now()},
+        "last_error_details": details,
     }
 
 
@@ -366,15 +385,31 @@ class ProjectAnalysisWorkflow:
                 raise RuntimeError("%s is not configured" % provider_name.title())
             existing = {item.get("file_id"): item for item in self.store.project_analyses(project_id, provider_name)}
             pending = []
+            minimum_duration = float(getattr(analyzer, "minimum_duration_seconds", 0) or 0)
             for raw_file in project["raw_files"]:
                 result = existing.get(raw_file["file_id"])
-                if result is None or refresh:
-                    raw_file["analysis_status"] = "analyzing"
-                    raw_file.pop("analysis_error", None)
-                    pending.append(raw_file)
-                else:
+                duration = raw_file.get("metadata", {}).get("duration_seconds")
+                if result is not None and not refresh:
                     raw_file["analysis_status"] = "complete"
                     raw_file.pop("analysis_error", None)
+                    raw_file.pop("analysis_skip_reason", None)
+                elif minimum_duration and isinstance(duration, (int, float)) and duration < minimum_duration:
+                    raw_file["analysis_status"] = "skipped_too_short"
+                    raw_file["analysis_error"] = (
+                        "This clip is %.1f seconds; the video analyzer requires at least %.0f seconds."
+                        % (duration, minimum_duration)
+                    )
+                    raw_file["analysis_skip_reason"] = {
+                        "code": "below_analyzer_minimum_duration",
+                        "duration_seconds": duration,
+                        "minimum_duration_seconds": minimum_duration,
+                        "provider": provider_name,
+                    }
+                else:
+                    raw_file["analysis_status"] = "analyzing"
+                    raw_file.pop("analysis_error", None)
+                    raw_file.pop("analysis_skip_reason", None)
+                    pending.append(raw_file)
             self.store.update_project(project_id, raw_files=project["raw_files"])
 
             # Keep a small concurrency limit: it shortens long multi-clip jobs while
@@ -427,6 +462,11 @@ class ProjectAnalysisWorkflow:
                 raw_file.pop("analysis_error", None)
             self.store.update_project(project_id, raw_files=project["raw_files"])
             analyses = self.store.project_analyses(project_id, provider_name)
+            if not analyses:
+                raise ValueError(
+                    "None of the uploaded videos meet the video analyzer's %.0f-second minimum. Add a longer clip and try again."
+                    % minimum_duration
+                )
             content_map = self.build_content_map(project_id, provider_name, analyses, project.get("raw_files", []))
             self.store.write_json(self.store.project_dir(project_id) / "content_map.json", content_map)
             self.store.write_json(self.store.project_dir(project_id) / "content_maps" / (provider_name + ".json"), content_map)

@@ -64,6 +64,21 @@ class InvalidAnalyzer(FakeAnalyzer):
         return result
 
 
+class MinimumDurationAnalyzer(FakeAnalyzer):
+    minimum_duration_seconds = 4.0
+
+
+class ProviderApiError(Exception):
+    def __init__(self):
+        super().__init__("headers: {'authorization': 'secret'}, status_code: 400, body: video too short")
+        self.status_code = 400
+        self.body = {
+            "code": "video_duration_too_short",
+            "message": "The video is too short. Please use a video with duration at least 4 seconds. Current duration is 0.5 seconds.",
+        }
+        self.headers = {"authorization": "secret", "x-trace-id": "trace-123"}
+
+
 class FakeDecisionEngine:
     async def synthesize_style(self, analyses):
         rule = {
@@ -220,6 +235,14 @@ class StyleWorkflowTests(unittest.TestCase):
         self.assertIn("Add billing or credits", fields["last_error"])
         self.assertIn("insufficient_quota", fields["last_error_details"]["message"])
 
+    def test_provider_api_error_is_user_friendly_and_does_not_store_headers(self):
+        fields = failure_fields(ProviderApiError())
+        self.assertIn("4-second minimum", fields["last_error"])
+        self.assertEqual(fields["last_error_details"]["provider_code"], "video_duration_too_short")
+        self.assertEqual(fields["last_error_details"]["trace_id"], "trace-123")
+        self.assertNotIn("authorization", str(fields))
+        self.assertNotIn("secret", str(fields))
+
 
 class ProjectAnalysisWorkflowTests(unittest.TestCase):
     def setUp(self):
@@ -246,6 +269,23 @@ class ProjectAnalysisWorkflowTests(unittest.TestCase):
         self.assertTrue(all(item["analysis_status"] == "complete" for item in result["raw_files"]))
         asyncio.run(self.workflow.analyze(self.project["project_id"]))
         self.assertEqual(self.analyzer.calls, 2)
+
+    def test_skips_clips_below_provider_minimum_without_failing_batch(self):
+        analyzer = MinimumDurationAnalyzer("gemini")
+        workflow = ProjectAnalysisWorkflow(self.store, {"gemini": analyzer})
+        project = self.store.project(self.project["project_id"])
+        project["raw_files"][0]["metadata"]["duration_seconds"] = 0.5
+        project["raw_files"][1]["metadata"]["duration_seconds"] = 5
+        self.store.update_project(project["project_id"], raw_files=project["raw_files"])
+
+        result = asyncio.run(workflow.analyze(project["project_id"]))
+
+        self.assertEqual(result["status"], "footage_analyzed")
+        self.assertEqual(result["content_map"]["source_file_count"], 1)
+        self.assertEqual(analyzer.calls, 1)
+        self.assertEqual(result["raw_files"][0]["analysis_status"], "skipped_too_short")
+        self.assertEqual(result["raw_files"][0]["analysis_skip_reason"]["minimum_duration_seconds"], 4.0)
+        self.assertEqual(result["raw_files"][1]["analysis_status"], "complete")
 
     def test_identical_raw_footage_reuses_checksum_cache_across_projects(self):
         first = asyncio.run(self.workflow.analyze(self.project["project_id"]))

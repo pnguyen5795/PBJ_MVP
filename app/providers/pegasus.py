@@ -15,6 +15,7 @@ from ..prompts import VIDEO_ANALYSIS_PROMPT, VIDEO_ANALYSIS_PROMPT_VERSION
 
 class PegasusAnalyzer(AnalysisProvider):
     name = "pegasus"
+    minimum_duration_seconds = 4.0
 
     def cache_identity(self) -> Dict[str, str]:
         return {"model": settings.twelve_labs_model, "prompt_version": VIDEO_ANALYSIS_PROMPT_VERSION}
