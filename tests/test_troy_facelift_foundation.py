@@ -10,8 +10,8 @@ class TroyFaceliftFoundationTests(unittest.TestCase):
     def test_foundation_is_loaded_by_authenticated_and_access_shells(self):
         base = (ROOT_DIR / "app" / "templates" / "base.html").read_text()
         access = (ROOT_DIR / "app" / "templates" / "access.html").read_text()
-        self.assertIn("/troy-foundation.css", base)
-        self.assertIn("/troy-foundation.css", access)
+        self.assertIn("/ui.css?v=22", base)
+        self.assertIn("/ui.css?v=22", access)
 
     def test_black_and_purple_mobile_tokens_are_present(self):
         css = (ROOT_DIR / "app" / "static" / "troy-foundation.css").read_text()

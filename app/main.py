@@ -108,7 +108,7 @@ def recover_interrupted_jobs() -> None:
 recover_interrupted_jobs()
 
 
-PUBLIC_PATHS = {"/access", "/offline", "/manifest.webmanifest", "/service-worker.js", "/health"}
+PUBLIC_PATHS = {"/access", "/offline", "/manifest.webmanifest", "/service-worker.js", "/ui.css", "/health"}
 
 
 def device_id(request: Request) -> str:
@@ -271,6 +271,14 @@ app.add_middleware(
 @app.get("/manifest.webmanifest", include_in_schema=False)
 async def web_manifest():
     return FileResponse(settings.static_dir / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/ui.css", include_in_schema=False)
+async def ui_styles():
+    """Serve the complete UI outside the retired service-worker static cache."""
+    names = ("app.css", "workflow.css", "mobile-v2.css", "troy-foundation.css", "troy-screens.css")
+    content = "\n".join((settings.static_dir / name).read_text() for name in names)
+    return Response(content=content, media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/service-worker.js", include_in_schema=False)
