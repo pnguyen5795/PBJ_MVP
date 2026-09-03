@@ -5,13 +5,14 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 import json
+import logging
 import re
 import shutil
 import subprocess
 import time
 
 from ..media import inspect_video
-from ..ffmpeg_runtime import global_options, video_encoder_options
+from ..ffmpeg_runtime import global_options, input_options, low_memory_mode, video_encoder_options
 from ..storage import JsonStore, new_id, sha256 as file_sha256, utc_now
 from .contracts import TIMELINE_FPS, canonical_json, main_video_duration_frames
 from .preview import preview_state_at_frame
@@ -22,6 +23,9 @@ from .lifecycle import ACTIVE_JOB_STATES
 
 class TimelineCompileError(RuntimeError):
     pass
+
+
+render_logger = logging.getLogger("pbj.render")
 
 
 class TimelineFFmpegCompiler:
@@ -43,7 +47,7 @@ class TimelineFFmpegCompiler:
             source = self.store.resolve_data_path(asset["stored_path"])
             if not source.exists():
                 raise TimelineCompileError("Original asset is missing: %s" % asset_id)
-            command.extend(["-i", str(source)])
+            command.extend([*input_options(), "-i", str(source)])
             result = input_index
             input_index += 1
             return result
@@ -337,6 +341,14 @@ class TimelineExportService:
         try:
             timeline = self.store.read_json(self.store.resolve_data_path(record["timeline_path"]))
             output = root / "output.mp4"
+            main_clip_count = sum(
+                len(track.get("clips", [])) for track in timeline.get("tracks", [])
+                if track.get("kind") == "video" and track.get("role") == "main"
+            )
+            render_logger.warning(
+                "PBJ_RENDER_EVENT start project_id=%s export_id=%s main_clips=%d assets=%d low_memory=%s",
+                project_id, export_id, main_clip_count, len(timeline.get("assets", [])), low_memory_mode(),
+            )
             render = self.compiler.render(project, timeline, output)
             command = render.pop("command")
             receipt = {
@@ -376,8 +388,16 @@ class TimelineExportService:
                 editor_read_only=False, active_export_id=None, active_task=None,
                 latest_export=record, has_unexported_changes=False if approval else True,
             )
+            render_logger.warning(
+                "PBJ_RENDER_EVENT complete project_id=%s export_id=%s elapsed_seconds=%s output_bytes=%s",
+                project_id, export_id, render.get("elapsed_seconds"), receipt["output"]["size_bytes"],
+            )
             return record
         except Exception as exc:
+            render_logger.warning(
+                "PBJ_RENDER_EVENT failed project_id=%s export_id=%s error_type=%s",
+                project_id, export_id, type(exc).__name__,
+            )
             record.update(status="failed", failed_at=utc_now(), error=str(exc))
             self.store.write_json(root / "export.json", record)
             self.store.update_project(project_id, status="export_failed", editor_read_only=False, active_export_id=None, active_task=None, last_error=str(exc))

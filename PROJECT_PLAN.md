@@ -144,7 +144,7 @@ Measure first-cut approval, selected-source retention, duration retention, openi
 
 Add durable jobs, cloud storage, authentication/authorization, consent, deletion, recovery, observability, and push notifications. Test on physical iPhones.
 
-The first Stage 4 checkpoint is a free Render smoke test with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and explicitly disposable storage. The hosted smoke test limits FFmpeg filter/encoder concurrency, keeps FFprobe and FFmpeg work off the web event loop, and skips unused editor-proxy transcoding in the automatic rough-cut path to stay within the free instance's resource ceiling. After validation, upgrade compute and attach persistent storage before retaining real projects. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
+The first Stage 4 checkpoint is a free Render smoke test with an access code, generated secure session secret, HTTPS-only cookies, Dockerized FFmpeg, and explicitly disposable storage. The hosted smoke test limits FFmpeg filter/encoder concurrency, input probe buffers, lookahead, and reference frames; uses a zero-latency ultrafast encoder path; keeps FFprobe and FFmpeg work off the web event loop; and skips unused editor-proxy transcoding in the automatic rough-cut path to stay within the free instance's resource ceiling. This trades compression efficiency for lower peak memory while retaining the 1080×1920 output contract. After validation, upgrade compute and attach persistent storage before retaining real projects. Durable workers, object storage, accounts, and multi-user isolation remain later gates.
 
 ### Stage 5 — Public readiness
 

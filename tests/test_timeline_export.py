@@ -48,8 +48,12 @@ class TimelineCompilerTests(TestCase):
                 {"project_id": project_id, "raw_files": [raw]}, timeline, source.parent / "output.mp4",
             )
             self.assertIn("-filter_complex_threads", command)
-            self.assertIn("threads=1:lookahead_threads=1:sync-lookahead=0", command)
+            self.assertIn("threads=1:lookahead_threads=1:sync-lookahead=0:rc-lookahead=0:ref=1:bframes=0", command)
             self.assertEqual(command[command.index("-threads") + 1], "1")
+            self.assertEqual(command[command.index("-preset") + 1], "ultrafast")
+            self.assertEqual(command[command.index("-tune") + 1], "zerolatency")
+            self.assertEqual(command.count("-probesize"), 2)
+            self.assertEqual(command.count("-analyzeduration"), 2)
 
     def test_compiler_reads_original_assets_and_produces_verified_output(self):
         with TemporaryDirectory() as folder:
