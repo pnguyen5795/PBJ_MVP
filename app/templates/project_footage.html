@@ -4,10 +4,11 @@
 <section class="pbj-np1 pbj-screen-exact">
   <a href="/projects/new/references" class="pbj-back-button pbj-back-floating" aria-label="Back to References">‹</a>
   <div class="pbj-np1__body"><div class="pbj-np1__hero"><p class="eyebrow">ADD YOUR MEDIA</p><h1 class="pbj-np1__title-display">Choose your footage</h1><p class="pbj-np1__intro">Add the videos PBJ may use. The length of your cut will come from your creative brief.</p></div><div class="pbj-np1__middle"><section class="pbj-np1__section">
-  {% if uploaded_session %}
+  {% if uploaded_session and uploaded_session.status == 'ready_for_brief' %}
   <div class="pbj-np1__clip-grid">{% for file in uploaded_session.files %}<div class="pbj-np1__clip-tile"><span>▶</span><small>{{ file.original_name }}</small></div>{% endfor %}</div><div class="pbj-np1__footer"><a class="button wide" href="/projects/new/brief?session_id={{ uploaded_session.session_id }}">Next</a></div>
   {% else %}
-  <form id="footage-upload-form" class="upload-form pbj-np1__form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true">
+  {% if uploaded_session and uploaded_session.files %}<div class="notice success"><strong>{{ uploaded_session.files|length }} video{{ '' if uploaded_session.files|length == 1 else 's' }} saved.</strong> Choose the remaining videos to resume this upload.</div><div class="pbj-np1__clip-grid">{% for file in uploaded_session.files %}<div class="pbj-np1__clip-tile"><span>✓</span><small>{{ file.original_name }}</small></div>{% endfor %}</div>{% endif %}
+  <form id="footage-upload-form" class="upload-form pbj-np1__form" action="/projects" method="post" enctype="multipart/form-data" data-session-upload="true" data-session-id="{{ uploaded_session.session_id if uploaded_session else '' }}">
     <input type="hidden" name="style_id" value="{{ style.style_id if style else '' }}">
     <input type="hidden" name="prompt" value="{{ draft.description }}">
     <input type="hidden" name="name" value="{{ draft.name }}">
@@ -32,6 +33,8 @@
   const list=document.getElementById('selected-files');
   const submit=document.getElementById('upload-submit');
   const status=document.getElementById('upload-status');
+  const existingSessionId=form.dataset.sessionId||'';
+  const alreadyUploaded={{ (uploaded_session.files if uploaded_session else [])|tojson }};
   function formatSize(bytes){if(bytes<1048576)return Math.max(1,Math.round(bytes/1024))+' KB';return (bytes/1048576).toFixed(1)+' MB'}
   function showFiles(){
     const files=Array.from(input.files||[]);
@@ -43,7 +46,8 @@
   ['dragleave','drop'].forEach(function(name){input.addEventListener(name,function(){zone.classList.remove('drag-active');setTimeout(showFiles,0)})});
   input.addEventListener('change',showFiles);
   function message(text, error){status.hidden=false;status.className='notice '+(error?'error':'');status.textContent=text}
-  function uploadOne(sessionId, file, index, total){
+  function fileKey(file){return file.name+'|'+file.size}
+  function uploadOne(sessionId, file, index, total, attempt){
     return new Promise(function(resolve,reject){
       const request=new XMLHttpRequest();
       request.open('POST','/projects/upload-session/'+encodeURIComponent(sessionId)+'/file');
@@ -61,11 +65,16 @@
       };
       request.onerror=function(){reject(new Error('The connection stopped while uploading video '+index+'.'))};
       const body=new FormData(); body.append('footage',file,file.name); request.send(body);
+    }).catch(function(error){
+      if((attempt||0)<2){message('Connection paused. Retrying video '+index+'…');return new Promise(function(resolve){setTimeout(resolve,1200*((attempt||0)+1))}).then(function(){return uploadOne(sessionId,file,index,total,(attempt||0)+1)})}
+      throw error;
     });
   }
   form.addEventListener('submit',function(event){
     event.preventDefault();
-    const files=Array.from(input.files||[]);
+    const savedKeys=new Set(alreadyUploaded.map(function(file){return file.original_name+'|'+file.size_bytes}));
+    const files=Array.from(input.files||[]).filter(function(file){return !savedKeys.has(fileKey(file))});
+    if(input.files&&input.files.length&&!files.length){message('Those videos are already saved. Choose any remaining videos, or continue after this batch is complete.',true);return}
     if(!files.length){message('Choose at least one video before continuing.',true);return}
     const totalBytes=files.reduce(function(sum,file){return sum+file.size},0);
     if(totalBytes>2147483648){message('This batch is over 2 GB. Choose fewer videos, then add another batch later.',true);return}
@@ -74,9 +83,11 @@
     startBody.append('name',form.querySelector('[name=name]').value||'');
     startBody.append('style_id',form.querySelector('[name=style_id]').value);
     startBody.append('prompt',form.querySelector('[name=prompt]').value||'');
-    fetch('/projects/upload-session',{method:'POST',body:startBody})
-      .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})})
+    const sessionRequest=existingSessionId?Promise.resolve({session_id:existingSessionId}):fetch('/projects/upload-session',{method:'POST',body:startBody})
+      .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})});
+    sessionRequest
       .then(function(session){
+        history.replaceState(null,'','/projects/new/footage?session_id='+encodeURIComponent(session.session_id));
         let nextIndex=0;
         function worker(){
           const index=nextIndex++;
@@ -91,6 +102,7 @@
       .then(function(result){message('Upload complete. Opening the final details…');window.location='/projects/new/brief?session_id='+encodeURIComponent(result.session_id)})
       .catch(function(error){submit.disabled=false;submit.textContent='Upload and review brief →';message(error.message||'The upload stopped. You can try again.',true)})
   });
+  document.addEventListener('visibilitychange',function(){if(document.hidden&&submit.disabled)message('Upload paused if iPhone suspends PBJ. Completed videos are saved; reopen PBJ to resume.')});
 })();
 </script>
 {% endif %}

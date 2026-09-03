@@ -280,6 +280,50 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('name="provider"', response.text)
 
+    def test_interrupted_upload_session_reopens_with_completed_files(self):
+        style_id = self.store.list_styles()[0]["style_id"]
+        upload = self.store.create_upload_session(
+            "Resume test", style_id, "pegasus", "Make a short edit", 20,
+            device_id="test-device",
+        )
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        saved = raw_dir / "001-saved.mov"
+        saved.write_bytes(b"saved-video")
+        self.store.update_upload_session(upload["session_id"], files=[{
+            "file_id": "raw-001", "original_name": "saved.mov",
+            "stored_path": str(saved.relative_to(self.store.data_dir)),
+            "size_bytes": saved.stat().st_size,
+        }])
+        session = {
+            "authorized": True, "owner": True, "device_id": "test-device",
+            "active_upload_session_id": upload["session_id"],
+            "project_draft": {"name": "Resume test", "description": "Make a short edit", "style_id": style_id},
+        }
+        signed = TimestampSigner(settings.session_secret).sign(b64encode(json.dumps(session).encode())).decode()
+        self.client.cookies.set("session", signed)
+
+        response = self.client.get("/projects/new/footage")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("1 video saved", response.text)
+        self.assertIn("Choose the remaining videos", response.text)
+        self.assertIn('data-session-id="%s"' % upload["session_id"], response.text)
+
+    def test_upload_retry_does_not_duplicate_a_completed_file(self):
+        upload = self.store.create_upload_session(
+            "Retry test", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
+        first = self.client.post(endpoint, files={"footage": ("clip.mov", b"video-bytes", "video/quicktime")})
+        second = self.client.post(endpoint, files={"footage": ("clip.mov", b"video-bytes", "video/quicktime")})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["uploaded_files"], 1)
+        self.assertEqual(len(self.store.upload_session(upload["session_id"])["files"]), 1)
+
     def test_recipe_lab_does_not_expose_analyzer_or_refresh_controls(self):
         style_id = self.store.list_styles()[0]["style_id"]
         response = self.client.get("/styles/%s/analysis" % style_id)

@@ -37,6 +37,7 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 ## Route behavior
 
 - `POST /projects/{project_id}/approve` requires explicit confirmation and approves only the latest completed render.
+- Raw-footage uploads preserve every fully received file in a device-owned upload session. If iOS suspends the browser, reopening the footage route resumes that session and asks only for unfinished files; a partially transmitted individual file may still require reselection.
 - `POST /projects/{project_id}/revise` requires nonempty feedback, replans from cached analysis, validates the new timeline, and renders a new version.
 - `POST /projects/{project_id}/retry` rebuilds either current or legacy saved-plan artifacts with frame-safe boundaries before retrying a failed or incomplete export; failures show their recorded cause rather than a generic dead end.
 - `POST /projects/new/references-retry` retries failed recipe synthesis from saved eligible analysis without requiring a replacement upload.

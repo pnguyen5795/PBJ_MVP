@@ -332,6 +332,7 @@ class JsonStore:
             "recipe_match": recipe_match,
             "device_id": device_id,
             "created_at": utc_now(),
+            "status": "uploading",
             "files": [],
         }
         self.write_json(folder / "manifest.json", manifest)

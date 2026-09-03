@@ -66,6 +66,13 @@ class PromptFirstProjectFlowTests(unittest.TestCase):
             self.assertEqual(response.status_code, 303)
             self.assertEqual(response.headers["location"], "/projects/new")
 
+    def test_offline_recovery_page_is_public_and_actionable(self):
+        self.client.cookies.clear()
+        response = self.client.get("/offline")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Your saved videos are safe", response.text)
+        self.assertIn("Try connecting again", response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

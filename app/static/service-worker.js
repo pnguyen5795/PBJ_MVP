@@ -1,5 +1,6 @@
-const CACHE = "pbj-shell-v19";
+const CACHE = "pbj-shell-v20";
 const SHELL = [
+  "/offline",
   "/static/app.css",
   "/static/workflow.css",
   "/static/mobile-v2.css?v=19",
@@ -27,8 +28,13 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== location.origin) return;
-  if (!url.pathname.startsWith("/static/")) return;
-  event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request)));
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request).catch(() => caches.match("/offline")));
+    return;
+  }
+  if (url.pathname.startsWith("/static/")) {
+    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request)));
+  }
 });
 
 self.addEventListener("push", event => {

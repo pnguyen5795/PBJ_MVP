@@ -103,7 +103,7 @@ def recover_interrupted_jobs() -> None:
 recover_interrupted_jobs()
 
 
-PUBLIC_PATHS = {"/access", "/manifest.webmanifest", "/service-worker.js", "/health"}
+PUBLIC_PATHS = {"/access", "/offline", "/manifest.webmanifest", "/service-worker.js", "/health"}
 
 
 def device_id(request: Request) -> str:
@@ -716,12 +716,14 @@ async def project_footage_page(request: Request, style_id: str = "", session_id:
         if not style.get("approval", {}).get("approved"):
             return RedirectResponse("/projects/new/references-progress", status_code=303)
     uploaded_session = None
+    session_id = session_id or request.session.get("active_upload_session_id", "")
     if session_id:
         try:
             uploaded_session = store.upload_session(session_id)
         except (FileNotFoundError, OSError, ValueError):
-            raise HTTPException(404, "Upload session not found")
-        if uploaded_session.get("device_id") != device_id(request):
+            request.session.pop("active_upload_session_id", None)
+            uploaded_session = None
+        if uploaded_session and uploaded_session.get("device_id") != device_id(request):
             raise HTTPException(404, "Upload session not found")
     return templates.TemplateResponse(request, "project_footage.html", {
         "style": style, "draft": draft, "uploaded_session": uploaded_session,
@@ -751,6 +753,7 @@ async def start_upload_session(request: Request, name: str = Form(""), style_id:
     session = store.create_upload_session(
         name, selected_style_id, provider, prompt, target_seconds, intent, recipe_match, device_id(request),
     )
+    request.session["active_upload_session_id"] = session["session_id"]
     return {"session_id": session["session_id"], "uploaded_files": 0}
 
 
@@ -785,20 +788,30 @@ async def upload_session_file(request: Request, session_id: str, footage: Upload
     # observe the same list length and overwrite the same sequential slot.
     with upload_manifest_lock:
         session = store.upload_session(session_id)
+        original_name = footage.filename or safe_filename
+        duplicate = next(
+            (item for item in session.get("files", [])
+             if item.get("original_name") == original_name and item.get("size_bytes") == target.stat().st_size),
+            None,
+        )
         current_bytes = sum(item.get("size_bytes", 0) for item in session.get("files", []))
-        if current_bytes + target.stat().st_size > settings.max_upload_batch_bytes:
+        if not duplicate and current_bytes + target.stat().st_size > settings.max_upload_batch_bytes:
             target.unlink(missing_ok=True)
             raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
-        index = len(session.get("files", [])) + 1
-        final_target = raw_dir / ("%03d-%s" % (index, safe_filename))
-        target.replace(final_target)
-        record = {
-            "file_id": "raw-%03d" % index,
-            "original_name": footage.filename or final_target.name,
-            "stored_path": str(final_target.relative_to(store.data_dir)),
-            "size_bytes": final_target.stat().st_size,
-        }
-        session = store.update_upload_session(session_id, files=session.get("files", []) + [record])
+        if duplicate:
+            target.unlink(missing_ok=True)
+            record = duplicate
+        else:
+            index = len(session.get("files", [])) + 1
+            final_target = raw_dir / ("%03d-%s" % (index, safe_filename))
+            target.replace(final_target)
+            record = {
+                "file_id": "raw-%03d" % index,
+                "original_name": original_name,
+                "stored_path": str(final_target.relative_to(store.data_dir)),
+                "size_bytes": final_target.stat().st_size,
+            }
+            session = store.update_upload_session(session_id, files=session.get("files", []) + [record])
     return {"file_id": record["file_id"], "filename": record["original_name"], "size_bytes": record["size_bytes"], "uploaded_files": len(session["files"])}
 
 
@@ -893,6 +906,7 @@ async def finish_new_project(
     })
     shutil.rmtree(str(store.upload_session_dir(session_id)), ignore_errors=True)
     request.session.pop("project_draft", None)
+    request.session.pop("active_upload_session_id", None)
     store.update_project(
         project["project_id"], status="analysis_queued", last_error=None, active_revision=1,
         active_task="Understanding your footage", active_started_at=utc_now(),
@@ -1655,3 +1669,8 @@ async def api_contracts():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/offline", response_class=HTMLResponse)
+async def offline_page(request: Request):
+    return templates.TemplateResponse(request, "offline.html", {})
