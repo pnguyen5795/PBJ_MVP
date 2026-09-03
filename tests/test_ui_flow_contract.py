@@ -1,6 +1,8 @@
 import json
 import io
+import asyncio
 import tempfile
+import time
 import unittest
 import zipfile
 from base64 import b64encode
@@ -8,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
 
@@ -323,6 +326,46 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.json()["uploaded_files"], 1)
         self.assertEqual(len(self.store.upload_session(upload["session_id"])["files"]), 1)
+
+    def test_health_stays_responsive_while_uploaded_media_is_inspected(self):
+        upload = self.store.create_upload_session(
+            "Inspection test", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        media = raw_dir / "001-video.mov"
+        media.write_bytes(b"video")
+        self.store.update_upload_session(upload["session_id"], files=[{
+            "file_id": "raw-001", "original_name": "video.mov",
+            "stored_path": str(media.relative_to(self.store.data_dir)), "size_bytes": media.stat().st_size,
+        }])
+
+        def slow_inspection(_path):
+            time.sleep(0.3)
+            return {"duration_seconds": 5, "has_audio": True}
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=main_module.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"session": self.client.cookies.get("session")},
+            ) as client:
+                started = asyncio.get_running_loop().time()
+                completion = asyncio.create_task(client.post(
+                    "/projects/upload-session/%s/complete" % upload["session_id"]
+                ))
+                await asyncio.sleep(0.03)
+                health = await client.get("/health")
+                responsive_after = asyncio.get_running_loop().time() - started
+                completed = await completion
+                return health, responsive_after, completed
+
+        with patch.object(main_module, "inspect_video", side_effect=slow_inspection):
+            health, responsive_after, completed = asyncio.run(exercise())
+        self.assertEqual(health.status_code, 200)
+        self.assertLess(responsive_after, 0.2)
+        self.assertEqual(completed.status_code, 200)
 
     def test_client_diagnostics_store_only_allowlisted_private_fields(self):
         response = self.client.post("/diagnostics/client", json={

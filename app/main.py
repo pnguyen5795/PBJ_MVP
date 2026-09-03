@@ -441,7 +441,7 @@ async def create_style(
                         raise HTTPException(413, "Reference videos must fit within the 2 GB batch limit.")
                     output.write(chunk)
             paths.append(target)
-        metadata = {str(path): inspect_video(path) for path in paths}
+        metadata = {str(path): await asyncio.to_thread(inspect_video, path) for path in paths}
         total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
         if total > 30 * 60:
             raise HTTPException(400, "Reference videos must total 30 minutes or less.")
@@ -694,7 +694,7 @@ async def save_project_references(
                         raise HTTPException(413, "Reference videos must fit within the 2 GB batch limit.")
                     output.write(chunk)
             paths.append(target)
-        metadata = {str(path): inspect_video(path) for path in paths}
+        metadata = {str(path): await asyncio.to_thread(inspect_video, path) for path in paths}
         total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
         if total > 30 * 60:
             raise HTTPException(400, "Reference videos must total 30 minutes or less.")
@@ -919,7 +919,7 @@ async def complete_upload_session(request: Request, session_id: str):
     paths = [store.resolve_data_path(item["stored_path"]) for item in session["files"]]
     metadata = {}
     for path in paths:
-        details = inspect_video(path)
+        details = await asyncio.to_thread(inspect_video, path)
         if details.get("inspection_error"):
             raise HTTPException(400, "Could not inspect %s: %s" % (path.name, details["inspection_error"]))
         metadata[str(path)] = details
@@ -1045,7 +1045,7 @@ async def create_project(
                         raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
                     output.write(chunk)
             paths.append(target)
-        metadata = {str(path): inspect_video(path) for path in paths}
+        metadata = {str(path): await asyncio.to_thread(inspect_video, path) for path in paths}
         total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
         if total > 60 * 60:
             raise HTTPException(400, "Raw footage must total 60 minutes or less for this workspace.")
@@ -1143,7 +1143,7 @@ async def _run_complete_production(project_id: str) -> None:
             project_id, timeline["timeline_hash"],
             approve_on_success=False, approval_confirmation=False,
         )
-        TimelineExportService(store).run(project_id, export["export_id"])
+        await asyncio.to_thread(TimelineExportService(store).run, project_id, export["export_id"])
     except Exception as exc:
         current = store.project(project_id)
         if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
@@ -1162,7 +1162,7 @@ async def _run_revision(project_id: str, feedback: str) -> None:
             approve_on_success=False, approval_confirmation=False,
             revision_prompt=feedback,
         )
-        TimelineExportService(store).run(project_id, export["export_id"])
+        await asyncio.to_thread(TimelineExportService(store).run, project_id, export["export_id"])
     except Exception as exc:
         current = store.project(project_id)
         if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
@@ -1432,7 +1432,7 @@ async def upload_editor_asset(
     except Exception:
         target.unlink(missing_ok=True)
         raise
-    metadata = inspect_video(target)
+    metadata = await asyncio.to_thread(inspect_video, target)
     if metadata.get("inspection_error"):
         target.unlink(missing_ok=True)
         raise HTTPException(400, "PB&J could not inspect this media file")
