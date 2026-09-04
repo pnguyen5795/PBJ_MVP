@@ -14,12 +14,23 @@ class HostedDemoConfigTests(unittest.TestCase):
         self.assertNotIn("disk:", blueprint)
         self.assertIn("value: /tmp/pbj-data", blueprint)
         self.assertIn("key: PBJ_LOW_MEMORY_MODE\n        value: \"true\"", blueprint)
+        self.assertIn("name: pbnj-launcher", blueprint)
+        self.assertIn("name: pbnj-launcher\n    runtime: python\n    region: oregon\n    plan: free", blueprint)
 
     def test_blueprint_keeps_secrets_out_of_git(self):
         blueprint = (ROOT / "render.yaml").read_text()
-        for key in ("PBJ_ACCESS_CODE", "PBJ_OWNER_CODE", "OPENAI_API_KEY", "TWELVE_LABS_API_KEY"):
+        for key in ("PBJ_OWNER_CODE", "OPENAI_API_KEY", "TWELVE_LABS_API_KEY", "RENDER_API_KEY"):
             self.assertIn("key: %s\n        sync: false" % key, blueprint)
         self.assertIn("key: PBJ_SESSION_SECRET\n        generateValue: true", blueprint)
+        self.assertIn("key: PBJ_DEMO_CONTROL_TOKEN\n        generateValue: true", blueprint)
+        self.assertNotRegex(blueprint, r"rnd_[A-Za-z0-9]")
+
+    def test_launcher_and_main_share_only_narrow_demo_secrets(self):
+        blueprint = (ROOT / "render.yaml").read_text()
+        self.assertIn("value: https://pbnj-launcher.onrender.com", blueprint)
+        self.assertIn("value: \"900\"", blueprint)
+        self.assertEqual(blueprint.count("envVarKey: PBJ_ACCESS_CODE"), 1)
+        self.assertEqual(blueprint.count("envVarKey: PBJ_DEMO_CONTROL_TOKEN"), 1)
 
     def test_deploys_wait_for_checks_and_use_render_maximum_shutdown_window(self):
         blueprint = (ROOT / "render.yaml").read_text()
@@ -47,14 +58,8 @@ class HostedDemoConfigTests(unittest.TestCase):
     def test_app_lifespan_gates_and_cancels_media_processes(self):
         import app.main as main_module
 
-        self.assertIn(
-            main_module.start_media_process_runtime,
-            main_module.app.router.on_startup,
-        )
-        self.assertIn(
-            main_module.shutdown_media_process_runtime,
-            main_module.app.router.on_shutdown,
-        )
+        self.assertIn(main_module.start_application_runtime, main_module.app.router.on_startup)
+        self.assertIn(main_module.shutdown_application_runtime, main_module.app.router.on_shutdown)
 
 
 if __name__ == "__main__":

@@ -23,8 +23,12 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import save_api_keys, settings
 from .contracts import ANALYSIS_SCHEMA, EDIT_PLAN_SCHEMA, STYLE_PROFILE_SCHEMA
+from .demo_lifecycle import DemoActivityTracker, DemoLifecycleManager
 from .editorial_intelligence import interpret_brief, match_recipe
-from .ffmpeg_runtime import shutdown_media_process_runtime, start_media_process_runtime
+from .ffmpeg_runtime import (
+    active_media_process_count, shutdown_media_process_runtime,
+    start_media_process_runtime,
+)
 from .media import ffmpeg_status, inspect_video
 from .providers import PROVIDERS, provider_for_name, readiness_for_provider
 from .security import (
@@ -56,8 +60,6 @@ diagnostic_log_lock = Lock()
 approval_lock = Lock()
 render_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pbj-render")
 inspection_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pbj-inspect")
-app.router.add_event_handler("startup", start_media_process_runtime)
-app.router.add_event_handler("shutdown", shutdown_media_process_runtime)
 UPLOAD_WRITE_BUFFER_BYTES = 1024 * 1024
 ACCESS_FORM_MAX_BYTES = 1024
 PROJECT_NAME_MAX_CHARS = 120
@@ -248,7 +250,47 @@ def recover_interrupted_jobs() -> None:
 recover_interrupted_jobs()
 
 
+def has_active_demo_work() -> bool:
+    """Conservatively keep PBJ awake while any durable or OS-level work is active."""
+    if active_media_process_count():
+        return True
+    if any(item.get("status") in ACTIVE_JOB_STATES for item in store.list_projects()):
+        return True
+    if any(item.get("status") in ACTIVE_STYLE_JOB_STATES for item in store.list_styles()):
+        return True
+    return any(
+        item.get("status") in {"inspecting", "promoting"}
+        for item in store.list_records(store.upload_sessions_dir, "manifest.json")
+    )
+
+
+demo_activity = DemoActivityTracker()
+demo_lifecycle = DemoLifecycleManager(
+    enabled=settings.demo_lifecycle_enabled,
+    controller_url=settings.demo_controller_url,
+    control_token=settings.demo_control_token,
+    idle_seconds=settings.demo_idle_seconds,
+    tracker=demo_activity,
+    has_active_work=has_active_demo_work,
+)
+
+
+async def start_application_runtime() -> None:
+    start_media_process_runtime()
+    demo_lifecycle.start()
+
+
+async def shutdown_application_runtime() -> None:
+    await demo_lifecycle.stop()
+    shutdown_media_process_runtime()
+
+
+app.router.add_event_handler("startup", start_application_runtime)
+app.router.add_event_handler("shutdown", shutdown_application_runtime)
+
+
 PUBLIC_PATHS = {"/access", "/manifest.webmanifest", "/ui.css", "/health"}
+INTERNAL_AUTH_PATHS = {"/internal/demo/can-suspend"}
 
 
 def device_id(request: Request) -> str:
@@ -420,6 +462,10 @@ async def cache_bounded_access_form_body(request: Request) -> Response | None:
 @app.middleware("http")
 async def private_beta_access(request: Request, call_next):
     path = request.url.path
+    if path in INTERNAL_AUTH_PATHS:
+        # These routes authenticate their fixed server-to-server bearer token;
+        # browser Origin metadata is neither present nor sufficient.
+        return await call_next(request)
     if not same_origin(request, hosted=settings.hosted_mode):
         return Response("Cross-site request blocked.", status_code=403)
     if request.method == "POST" and path in {"/access", "/owner-access"}:
@@ -450,7 +496,11 @@ async def private_beta_access(request: Request, call_next):
             return Response(status_code=404)
         if style.get("project_private") and style.get("device_id") != device_id(request):
             return Response(status_code=404)
-    return await call_next(request)
+    demo_activity.request_started()
+    try:
+        return await call_next(request)
+    finally:
+        demo_activity.request_finished()
 
 
 app.add_middleware(
@@ -2365,6 +2415,31 @@ async def project_output(project_id: str, run_id: str):
 @app.get("/api/readiness")
 async def api_readiness():
     return readiness()
+
+
+@app.post("/api/demo/activity", status_code=204, include_in_schema=False)
+async def record_demo_activity():
+    """Reset the idle timer only for an authorized, visible browser session."""
+    demo_activity.touch()
+    return Response(status_code=204)
+
+
+@app.post("/internal/demo/can-suspend", include_in_schema=False)
+async def confirm_demo_can_suspend(request: Request):
+    authorization = request.headers.get("authorization", "")
+    prefix = "Bearer "
+    supplied = authorization[len(prefix):] if authorization.startswith(prefix) else ""
+    if not settings.demo_lifecycle_enabled or not exact_secret_match(
+        supplied, settings.demo_control_token,
+    ):
+        raise HTTPException(401, "Unauthorized.")
+    idle_for, active_requests, _ = demo_activity.snapshot()
+    allowed = (
+        idle_for >= settings.demo_idle_seconds
+        and active_requests == 0
+        and not has_active_demo_work()
+    )
+    return {"allowed": allowed}
 
 
 @app.get("/api/contracts")
