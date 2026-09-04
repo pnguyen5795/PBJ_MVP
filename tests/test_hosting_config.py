@@ -19,11 +19,12 @@ class HostedDemoConfigTests(unittest.TestCase):
 
     def test_blueprint_keeps_secrets_out_of_git(self):
         blueprint = (ROOT / "render.yaml").read_text()
-        for key in ("PBJ_OWNER_CODE", "OPENAI_API_KEY", "TWELVE_LABS_API_KEY", "RENDER_API_KEY"):
+        for key in ("PBJ_OWNER_CODE", "OPENAI_API_KEY", "TWELVE_LABS_API_KEY", "PBJ_RENDER_API_KEY"):
             self.assertIn("key: %s\n        sync: false" % key, blueprint)
         self.assertIn("key: PBJ_SESSION_SECRET\n        generateValue: true", blueprint)
         self.assertIn("key: PBJ_DEMO_CONTROL_TOKEN\n        generateValue: true", blueprint)
         self.assertNotRegex(blueprint, r"rnd_[A-Za-z0-9]")
+        self.assertNotIn("key: RENDER_API_KEY", blueprint)
 
     def test_launcher_and_main_share_only_narrow_demo_secrets(self):
         blueprint = (ROOT / "render.yaml").read_text()

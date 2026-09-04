@@ -38,7 +38,8 @@ class LauncherSettings:
         return cls(
             target_service_id=os.getenv("PBJ_TARGET_SERVICE_ID", ""),
             target_url=os.getenv("PBJ_TARGET_URL", "").rstrip("/"),
-            render_api_key=os.getenv("RENDER_API_KEY", ""),
+            # Render reserves the RENDER_* namespace for platform variables.
+            render_api_key=os.getenv("PBJ_RENDER_API_KEY", ""),
             control_token=os.getenv("PBJ_DEMO_CONTROL_TOKEN", ""),
             access_code=os.getenv("PBJ_ACCESS_CODE", ""),
             session_secret=os.getenv("PBJ_LAUNCHER_SESSION_SECRET", ""),
@@ -60,7 +61,7 @@ def validate_settings(settings: LauncherSettings) -> None:
     if not SERVICE_ID_PATTERN.fullmatch(settings.target_service_id):
         raise RuntimeError("PBJ_TARGET_SERVICE_ID is invalid.")
     for name, value, minimum in (
-        ("RENDER_API_KEY", settings.render_api_key, 20),
+        ("PBJ_RENDER_API_KEY", settings.render_api_key, 20),
         ("PBJ_DEMO_CONTROL_TOKEN", settings.control_token, 32),
         ("PBJ_ACCESS_CODE", settings.access_code, 1),
         ("PBJ_LAUNCHER_SESSION_SECRET", settings.session_secret, 32),

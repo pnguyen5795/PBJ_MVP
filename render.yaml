@@ -81,5 +81,5 @@ services:
           envVarKey: PBJ_DEMO_CONTROL_TOKEN
       - key: PBJ_LAUNCHER_SESSION_SECRET
         generateValue: true
-      - key: RENDER_API_KEY
+      - key: PBJ_RENDER_API_KEY
         sync: false
