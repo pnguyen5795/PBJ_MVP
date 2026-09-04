@@ -3,8 +3,8 @@
   <a href="/" class="pbj-back-button pbj-back-floating" aria-label="Back to Home">‹</a>
   <form class="pbj-np2__form" action="/projects/new/describe" method="post">
     <div class="pbj-np2__body"><div class="pbj-np2__hero"><h1 class="pbj-np2__title">The Recipe</h1><p class="pbj-np2__subtitle">tell us how you want it cut</p><span class="sr-only">Describe the video you want</span></div>
-      <input type="hidden" name="name" value="{{ draft.name or 'New Project' }}">
-      <div class="pbj-np2__prompt-wrap"><textarea class="pbj-np2__prompt" name="description" rows="1" required placeholder="Make this feel fast, playful, and chronological, with a strong opening…">{{ draft.description or '' }}</textarea></div>
+      <input type="hidden" name="name" maxlength="120" value="{{ draft.name or 'New Project' }}">
+      <div class="pbj-np2__prompt-wrap"><textarea class="pbj-np2__prompt" name="description" rows="1" required maxlength="1600" placeholder="Make this feel fast, playful, and chronological, with a strong opening…">{{ draft.description or '' }}</textarea></div>
       <div class="pbj-np2__chips-row" aria-label="Direction ideas"><button type="button" class="pbj-np2__chip" data-idea="Fast-paced with a strong hook">Fast paced</button><button type="button" class="pbj-np2__chip" data-idea="Warm, story-led, and chronological">Story led</button><button type="button" class="pbj-np2__chip" data-idea="Clean and minimal with the best reactions">Clean</button></div>
     </div><div class="pbj-np2__footer"><button class="button wide" type="submit">Next</button></div>
   </form>

@@ -25,6 +25,9 @@
           <button class="button" type="submit">Try this edit again</button>
         </form>
       {% endif %}
+      {% if project.latest_export and project.latest_export.status == 'complete' %}
+        <a class="button secondary" href="/projects/{{ project.project_id }}/ready">View last completed cut</a>
+      {% endif %}
       <a href="/projects/{{ project.project_id }}/brief">Adjust the creative brief</a>
       {% if project.last_error_details %}<details><summary>Technical details</summary><p>{{ project.last_error_details.message }}</p></details>{% endif %}
     </div>
@@ -38,8 +41,8 @@
     </div>
     <div class="production-stages pbj-cooking-stages">
       <div class="stage {{ 'active' if status in ['analysis_queued','analyzing_footage'] else 'done' }}"><i>1</i><span><strong>Understanding your footage</strong><small>Finding actions, dialogue, reactions, and visual moments</small></span></div>
-      <div class="stage {{ 'active' if status in ['footage_analyzed','timeline_queued','planning_timeline'] else ('done' if status == 'preparing_proxies' else '') }}"><i>2</i><span><strong>Building and validating the story</strong><small>Selecting, ordering, and checking source ranges</small></span></div>
-      <div class="stage {{ 'active' if status in ['preparing_proxies','export_queued','exporting'] else '' }}"><i>3</i><span><strong>Rendering the video</strong><small>Combining only your supplied footage with FFmpeg and checking the finished file</small></span></div>
+      <div class="stage {{ 'active' if status in ['footage_analyzed','timeline_queued','planning_timeline'] else ('done' if status in ['timeline_ready','export_queued','exporting'] else '') }}"><i>2</i><span><strong>Building and validating the story</strong><small>Selecting, ordering, and checking source ranges</small></span></div>
+      <div class="stage {{ 'active' if status in ['export_queued','exporting'] else '' }}"><i>3</i><span><strong>Rendering the video</strong><small>Combining only your supplied footage with FFmpeg and checking the finished file</small></span></div>
     </div>
     <p class="pbj-cooking-nudge">You can leave this screen. PBJ will keep working and this page will move forward when the rough cut is ready to watch.</p>
   {% endif %}

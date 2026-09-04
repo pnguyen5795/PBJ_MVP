@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Rough cut ready · PBJ{% endblock %}
 {% block content %}
+{% set failed_statuses = ['analysis_failed', 'rough_cut_failed', 'timeline_failed', 'export_failed'] %}
 <section class="pbj-ready-page">
   {% if export.status == 'complete' %}
     <div class="pbj-roughcut-player">
       <video controls playsinline preload="metadata" src="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download"></video>
     </div>
     <div class="pbj-ready-copy">
-      {% if project.status == 'approved' %}
+      {% if project.status in failed_statuses %}
+        <p class="eyebrow">LAST COMPLETED CUT</p>
+        <h1>Your newer edit did not finish</h1>
+        <p>This video is the last cut PBJ completed successfully. It is available to watch or download, but it is not the unfinished newer edit.</p>
+      {% elif project.status == 'approved' %}
         <p class="eyebrow">CUT {{ cut_number }} APPROVED</p>
         <h1>{{ 'Your first cut is approved' if cut_number == 1 else 'Your revised cut is approved' }}</h1>
         <p>PBJ saved Cut {{ cut_number }} as the successful project outcome and kept every earlier render available for comparison.</p>
@@ -21,7 +26,14 @@
         <p>Watch Cut {{ cut_number }} to see how PBJ applied your feedback. Approve this version if it is finished, or request another revision.</p>
       {% endif %}
     </div>
-    {% if project.status != 'approved' %}
+    {% if project.status in failed_statuses %}
+      <div class="pbj-ready-actions">
+        <a class="button large wide" href="/projects/{{ project.project_id }}/production-progress">Return to the failed edit</a>
+        <a class="button secondary wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download last completed cut</a>
+        {% if cuts|length > 1 %}<a class="button secondary wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}
+        <a class="button secondary wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a>
+      </div>
+    {% elif project.status != 'approved' and can_approve %}
       <div class="pbj-ready-actions">
         <form action="/projects/{{ project.project_id }}/approve" method="post">
           <input type="hidden" name="confirmation" value="approve">
@@ -38,6 +50,11 @@
         {% if cuts|length > 1 %}<a class="button secondary wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}
         <a class="button secondary wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a>
         <a class="button secondary wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a>
+      </div>
+    {% elif project.status != 'approved' %}
+      <div class="pbj-ready-actions">
+        <div class="notice">{{ project.active_task or 'PBJ is finishing the current project task.' }} Refresh this page when it is done.</div>
+        <a class="button secondary wide" href="/projects/{{ project.project_id }}">Check project status</a>
       </div>
     {% else %}
       <div class="pbj-ready-actions"><a class="button large wide" href="/projects/{{ project.project_id }}/exports/{{ export.export_id }}/download">Download video</a>{% if cuts|length > 1 %}<a class="button secondary wide" href="/projects/{{ project.project_id }}/cuts">Compare with earlier cuts</a>{% endif %}<a class="button secondary wide" href="/projects/{{ project.project_id }}/analysis-results">View footage analysis</a><a class="button secondary wide" href="/projects/{{ project.project_id }}/analysis-data/download">Download analysis data</a><a class="button text wide" href="/">Return Home</a></div>

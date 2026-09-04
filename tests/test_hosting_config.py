@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -18,11 +19,42 @@ class HostedDemoConfigTests(unittest.TestCase):
         blueprint = (ROOT / "render.yaml").read_text()
         for key in ("PBJ_ACCESS_CODE", "PBJ_OWNER_CODE", "OPENAI_API_KEY", "TWELVE_LABS_API_KEY"):
             self.assertIn("key: %s\n        sync: false" % key, blueprint)
+        self.assertIn("key: PBJ_SESSION_SECRET\n        generateValue: true", blueprint)
+
+    def test_deploys_wait_for_checks_and_use_render_maximum_shutdown_window(self):
+        blueprint = (ROOT / "render.yaml").read_text()
+        self.assertIn("autoDeployTrigger: checksPass", blueprint)
+        self.assertIn("maxShutdownDelaySeconds: 300", blueprint)
+        self.assertNotIn("autoDeployTrigger: commit", blueprint)
+
+    def test_ci_runs_complete_checks_and_pins_third_party_actions(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("- codex/hosted-demo", workflow)
+        self.assertIn("python -m unittest discover -s tests", workflow)
+        uses = re.findall(r"uses:\s+([^\s#]+)", workflow)
+        self.assertTrue(uses)
+        for action in uses:
+            self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
 
     def test_container_binds_render_port_with_one_worker(self):
         dockerfile = (ROOT / "Dockerfile").read_text()
         self.assertIn("--port ${PORT:-10000} --workers 1", dockerfile)
+        self.assertIn("--no-server-header", dockerfile)
+        self.assertIn("--timeout-graceful-shutdown 240", dockerfile)
         self.assertIn("ffmpeg", dockerfile)
+
+    def test_app_lifespan_gates_and_cancels_media_processes(self):
+        import app.main as main_module
+
+        self.assertIn(
+            main_module.start_media_process_runtime,
+            main_module.app.router.on_startup,
+        )
+        self.assertIn(
+            main_module.shutdown_media_process_runtime,
+            main_module.app.router.on_shutdown,
+        )
 
 
 if __name__ == "__main__":

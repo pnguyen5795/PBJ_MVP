@@ -1,18 +1,31 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from threading import Lock
+from typing import Any, Dict, List
 import json
 import logging
+import os
 import re
 import shutil
-import subprocess
 import time
 
 from ..media import inspect_video
-from ..ffmpeg_runtime import global_options, input_options, low_memory_mode, video_encoder_options
+from ..ffmpeg_runtime import (
+    MEDIA_CAPTURE_LIMIT_BYTES,
+    MEDIA_STDERR_TAIL_BYTES,
+    MEDIA_TERMINATE_GRACE_SECONDS,
+    ManagedProcessTimeout,
+    active_media_process_count,
+    global_options,
+    input_options,
+    low_memory_mode,
+    run_media_process,
+    terminate_active_media_processes,
+    video_encoder_options,
+)
 from ..storage import JsonStore, new_id, sha256 as file_sha256, utc_now
 from .contracts import TIMELINE_FPS, canonical_json, main_video_duration_frames
 from .preview import preview_state_at_frame
@@ -26,6 +39,53 @@ class TimelineCompileError(RuntimeError):
 
 
 render_logger = logging.getLogger("pbj.render")
+_render_slot = Lock()
+_export_admission_lock = Lock()
+
+# The hosted 1 CPU / 2 GiB acceptance run rendered a 60-second, 15-source cut
+# in 325.265 seconds. A 10-minute floor leaves about 84% headroom for that case;
+# longer programs scale at 9x duration, which is the measured ratio plus 50%,
+# rounded up. The floor remains an operational knob for future measured tuning.
+DEFAULT_RENDER_TIMEOUT_FLOOR_SECONDS = 10 * 60
+RENDER_TIMEOUT_SECONDS_PER_OUTPUT_SECOND = 9
+RENDER_TIMEOUT_FLOOR_ENV = "PBJ_RENDER_TIMEOUT_FLOOR_SECONDS"
+RENDER_TERMINATE_GRACE_SECONDS = MEDIA_TERMINATE_GRACE_SECONDS
+RENDER_STDERR_TAIL_BYTES = MEDIA_STDERR_TAIL_BYTES
+QA_CAPTURE_LIMIT_BYTES = MEDIA_CAPTURE_LIMIT_BYTES
+
+
+def render_timeout_seconds(expected_output_seconds: float) -> float:
+    try:
+        configured_floor = int(os.getenv(
+            RENDER_TIMEOUT_FLOOR_ENV, str(DEFAULT_RENDER_TIMEOUT_FLOOR_SECONDS),
+        ))
+    except ValueError:
+        configured_floor = DEFAULT_RENDER_TIMEOUT_FLOOR_SECONDS
+    if configured_floor < 60:
+        configured_floor = DEFAULT_RENDER_TIMEOUT_FLOOR_SECONDS
+    floor = configured_floor
+    return max(float(floor), max(0.0, expected_output_seconds) * RENDER_TIMEOUT_SECONDS_PER_OUTPUT_SECOND)
+
+
+active_render_process_count = active_media_process_count
+terminate_active_render_processes = terminate_active_media_processes
+
+
+def _run_render_process(command: List[str], timeout_seconds: float,
+                        terminate_grace_seconds: float = RENDER_TERMINATE_GRACE_SECONDS) -> tuple[int, str]:
+    try:
+        result = run_media_process(
+            command,
+            timeout_seconds=timeout_seconds,
+            terminate_grace_seconds=terminate_grace_seconds,
+            stderr_limit_bytes=RENDER_STDERR_TAIL_BYTES,
+            stderr_tail=True,
+        )
+    except ManagedProcessTimeout:
+        raise TimelineCompileError(
+            "FFmpeg export timed out after %.0f seconds" % timeout_seconds,
+        )
+    return result.returncode, result.stderr
 
 
 class TimelineFFmpegCompiler:
@@ -37,7 +97,7 @@ class TimelineFFmpegCompiler:
     def compile_command(self, project: Dict[str, Any], timeline: Dict[str, Any], output: Path) -> List[str]:
         validate_timeline(timeline, for_export=True)
         assets = {item["asset_id"]: item for item in timeline["assets"]}
-        command = ["ffmpeg", "-hide_banner", "-y", *global_options()]
+        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-y", *global_options()]
         filters: List[str] = []
         input_index = 0
 
@@ -125,12 +185,24 @@ class TimelineFFmpegCompiler:
     def render(self, project: Dict[str, Any], timeline: Dict[str, Any], output: Path) -> Dict[str, Any]:
         output.parent.mkdir(parents=True, exist_ok=True)
         command = self.compile_command(project, timeline, output)
-        started = time.perf_counter()
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise TimelineCompileError("FFmpeg export failed: %s" % result.stderr[-3000:])
+        expected_seconds = main_video_duration_frames(timeline) / TIMELINE_FPS
+        timeout_seconds = render_timeout_seconds(expected_seconds)
+        total_started = time.perf_counter()
+        encode_started = time.perf_counter()
+        returncode, stderr = _run_render_process(command, timeout_seconds)
+        encode_elapsed = time.perf_counter() - encode_started
+        if returncode != 0:
+            raise TimelineCompileError("FFmpeg export failed: %s" % stderr[-3000:])
+        verification_started = time.perf_counter()
         verification = self.verify(output, timeline)
-        return {"command": command, "elapsed_seconds": round(time.perf_counter() - started, 3), "verification": verification}
+        verification_elapsed = time.perf_counter() - verification_started
+        return {
+            "command": command,
+            "elapsed_seconds": round(time.perf_counter() - total_started, 3),
+            "encode_elapsed_seconds": round(encode_elapsed, 3),
+            "verification_elapsed_seconds": round(verification_elapsed, 3),
+            "verification": verification,
+        }
 
     def verify(self, output: Path, timeline: Dict[str, Any]) -> Dict[str, Any]:
         metadata = inspect_video(output)
@@ -153,16 +225,37 @@ class TimelineFFmpegCompiler:
     @staticmethod
     def _structural_checks(output: Path, expected_seconds: float) -> Dict[str, Any]:
         command = [
-            "ffmpeg", "-hide_banner", "-v", "info", "-i", str(output),
+            "ffmpeg", "-hide_banner", "-nostats", "-v", "info", "-i", str(output),
             "-vf", "blackdetect=d=0.75:pix_th=0.02,freezedetect=n=-60dB:d=4",
             "-af", "silencedetect=n=-55dB:d=3", "-f", "null", "-",
         ]
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=max(60, int(expected_seconds * 3)))
-        except (OSError, subprocess.SubprocessError) as exc:
-            return {"structural_scan": {"required": True, "status": "not_evaluated", "error": str(exc)}}
+            result = run_media_process(
+                command,
+                timeout_seconds=max(60, int(expected_seconds * 3)),
+                stderr_limit_bytes=QA_CAPTURE_LIMIT_BYTES,
+                stderr_tail=False,
+            )
+        except ManagedProcessTimeout:
+            return {"structural_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "structural_scan_timeout",
+            }}
+        except OSError:
+            return {"structural_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "structural_scan_unavailable",
+            }}
+        if result.stderr_truncated:
+            return {"structural_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "structural_scan_output_limit",
+            }}
         if result.returncode != 0:
-            return {"structural_scan": {"required": True, "status": "not_evaluated", "error": result.stderr[-1000:]}}
+            return {"structural_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "structural_scan_failed",
+            }}
         def intervals(prefix: str):
             starts = [float(value) for value in re.findall(prefix + r"_start:([0-9.]+)", result.stderr)]
             ends = [float(value) for value in re.findall(prefix + r"_end:([0-9.]+)", result.stderr)]
@@ -186,13 +279,28 @@ class TimelineFFmpegCompiler:
     @staticmethod
     def _timestamp_checks(output: Path, expected_seconds: float) -> Dict[str, Any]:
         try:
-            result = subprocess.run([
-                "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,start_time,duration",
-                "-of", "json", str(output),
-            ], capture_output=True, text=True, timeout=30)
-            payload = json.loads(result.stdout) if result.returncode == 0 else {}
-        except (OSError, subprocess.SubprocessError, ValueError) as exc:
-            return {"timestamp_scan": {"required": True, "status": "not_evaluated", "error": str(exc)}}
+            result = run_media_process(
+                [
+                    "ffprobe", "-v", "error", "-show_entries",
+                    "stream=codec_type,start_time,duration", "-of", "json", str(output),
+                ],
+                timeout_seconds=30,
+                capture_stdout=True,
+                stdout_limit_bytes=QA_CAPTURE_LIMIT_BYTES,
+            )
+            if result.returncode != 0 or result.stdout_truncated:
+                raise ValueError("timestamp scan did not return bounded JSON")
+            payload = json.loads(result.stdout)
+        except ManagedProcessTimeout:
+            return {"timestamp_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "timestamp_scan_timeout",
+            }}
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {"timestamp_scan": {
+                "required": True, "status": "not_evaluated",
+                "error": "timestamp_scan_failed",
+            }}
         streams = payload.get("streams") or []
         starts = [abs(float(item.get("start_time") or 0)) for item in streams]
         durations = {item.get("codec_type"): float(item.get("duration") or 0) for item in streams}
@@ -289,6 +397,18 @@ class TimelineExportService:
 
     def create(self, project_id: str, timeline_hash: str, *, approve_on_success: bool,
                approval_confirmation: bool, revision_prompt: str = "") -> Dict[str, Any]:
+        # Admission must cover the status check and queued-state commit as one
+        # operation; otherwise two browser retries can both enqueue an export.
+        with _export_admission_lock:
+            return self._create(
+                project_id, timeline_hash,
+                approve_on_success=approve_on_success,
+                approval_confirmation=approval_confirmation,
+                revision_prompt=revision_prompt,
+            )
+
+    def _create(self, project_id: str, timeline_hash: str, *, approve_on_success: bool,
+                approval_confirmation: bool, revision_prompt: str = "") -> Dict[str, Any]:
         project = self.store.project(project_id)
         if project.get("status") in ACTIVE_JOB_STATES:
             raise ValueError("Wait for the current project task to finish before exporting")
@@ -310,7 +430,17 @@ class TimelineExportService:
             "revision_prompt": revision_prompt.strip() or None,
         }
         self.store.write_json(root / "export.json", record)
-        self.store.update_project(project_id, status="export_queued", editor_read_only=True, active_export_id=export_id, active_task="Preparing final export", active_started_at=utc_now())
+        try:
+            self.store.transition_project(
+                project_id,
+                reject_statuses=ACTIVE_JOB_STATES,
+                status="export_queued",
+                active_export_id=export_id, active_task="Preparing final export",
+                active_started_at=utc_now(),
+            )
+        except Exception:
+            shutil.rmtree(root, ignore_errors=True)
+            raise
         return record
 
     def record(self, project_id: str, export_id: str) -> Dict[str, Any]:
@@ -332,15 +462,37 @@ class TimelineExportService:
         return records
 
     def run(self, project_id: str, export_id: str) -> Dict[str, Any]:
+        waiting_started = time.perf_counter()
+        # One CPU and 2 GiB cannot safely support competing FFmpeg pipelines.
+        # Waiting exports remain visibly queued until this process-wide slot is
+        # available. Durable cross-process scheduling is intentionally later-stage.
+        with _render_slot:
+            queue_wait_seconds = round(time.perf_counter() - waiting_started, 3)
+            return self._run_with_slot(project_id, export_id, queue_wait_seconds)
+
+    def _run_with_slot(self, project_id: str, export_id: str,
+                       queue_wait_seconds: float) -> Dict[str, Any]:
         from .learning import approve_timeline_export
         root = self.store.project_dir(project_id) / "exports" / export_id
-        record = self.record(project_id, export_id)
-        project = self.store.update_project(project_id, status="exporting", active_task="Rendering from your original files")
-        record.update(status="exporting", started_at=utc_now())
-        self.store.write_json(root / "export.json", record)
+        output = root / "output.mp4"
+        record = None
+        render_completed = False
         try:
+            record = self.record(project_id, export_id)
+            try:
+                created_at = datetime.fromisoformat(record["created_at"])
+                durable_wait = (datetime.now(timezone.utc) - created_at).total_seconds()
+                queue_wait_seconds = round(max(queue_wait_seconds, durable_wait, 0), 3)
+            except (KeyError, TypeError, ValueError):
+                pass
+            project = self.store.update_project(
+                project_id, status="exporting", active_task="Rendering from your original files",
+            )
+            record.update(
+                status="exporting", started_at=utc_now(), queue_wait_seconds=queue_wait_seconds,
+            )
+            self.store.write_json(root / "export.json", record)
             timeline = self.store.read_json(self.store.resolve_data_path(record["timeline_path"]))
-            output = root / "output.mp4"
             main_clip_count = sum(
                 len(track.get("clips", [])) for track in timeline.get("tracks", [])
                 if track.get("kind") == "video" and track.get("role") == "main"
@@ -350,6 +502,7 @@ class TimelineExportService:
                 project_id, export_id, main_clip_count, len(timeline.get("assets", [])), low_memory_mode(),
             )
             render = self.compiler.render(project, timeline, output)
+            render_completed = True
             command = render.pop("command")
             receipt = {
                 "schema_version": "1.0", "export_id": export_id, "project_id": project_id,
@@ -358,7 +511,13 @@ class TimelineExportService:
                 "assets": [{"asset_id": item["asset_id"], "sha256": item.get("sha256"), "stored_path": item.get("stored_path")} for item in timeline["assets"]],
                 "compiled_command_hash": sha256(json.dumps(command, separators=(",", ":")).encode()).hexdigest(),
                 "output": {"path": str(output.relative_to(self.store.data_dir)), "sha256": file_sha256(output), "size_bytes": output.stat().st_size},
-                "verification": render["verification"], "render_elapsed_seconds": render["elapsed_seconds"],
+                "verification": render["verification"],
+                # Keep the original aggregate field for receipt compatibility,
+                # and add stage timings so encode and QA are no longer conflated.
+                "render_elapsed_seconds": render["elapsed_seconds"],
+                "encode_elapsed_seconds": render.get("encode_elapsed_seconds"),
+                "qa_elapsed_seconds": render.get("verification_elapsed_seconds"),
+                "render_queue_wait_seconds": queue_wait_seconds,
                 "original_assets_only": True, "proxy_assets_used": False,
                 "transform_contract_version": "normalized-focal-v1",
             }
@@ -385,7 +544,7 @@ class TimelineExportService:
                 self.store.write_json(root / "export.json", record)
             self.store.update_project(
                 project_id, status="approved" if approval else "timeline_ready",
-                editor_read_only=False, active_export_id=None, active_task=None,
+                active_export_id=None, active_task=None,
                 latest_export=record, has_unexported_changes=False if approval else True,
             )
             render_logger.warning(
@@ -398,7 +557,21 @@ class TimelineExportService:
                 "PBJ_RENDER_EVENT failed project_id=%s export_id=%s error_type=%s",
                 project_id, export_id, type(exc).__name__,
             )
-            record.update(status="failed", failed_at=utc_now(), error=str(exc))
-            self.store.write_json(root / "export.json", record)
-            self.store.update_project(project_id, status="export_failed", editor_read_only=False, active_export_id=None, active_task=None, last_error=str(exc))
+            if not render_completed:
+                output.unlink(missing_ok=True)
+            safe_error = "The video could not be rendered or verified. Try the export again."
+            if record is not None:
+                record.update(
+                    status="failed", failed_at=utc_now(), error=safe_error,
+                    failure_code="render_or_qa_failed",
+                )
+                self.store.write_json(root / "export.json", record)
+            self.store.update_project(
+                project_id, status="export_failed",
+                active_export_id=None, active_task=None, last_error=safe_error,
+                last_error_details={
+                    "type": type(exc).__name__, "code": "render_or_qa_failed",
+                    "message": safe_error, "recorded_at": utc_now(),
+                },
+            )
             raise

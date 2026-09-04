@@ -23,4 +23,4 @@ RUN chmod 0755 /usr/local/bin/pbj-entrypoint \
 EXPOSE 10000
 
 ENTRYPOINT ["pbj-entrypoint"]
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --no-server-header --timeout-graceful-shutdown 240"]

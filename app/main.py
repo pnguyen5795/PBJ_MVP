@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import List
-from datetime import datetime
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import io
 import json
 import logging
@@ -12,9 +13,10 @@ import tempfile
 import time
 import zipfile
 from threading import Lock
+from urllib.parse import unquote
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -22,18 +24,22 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import save_api_keys, settings
 from .contracts import ANALYSIS_SCHEMA, EDIT_PLAN_SCHEMA, STYLE_PROFILE_SCHEMA
 from .editorial_intelligence import interpret_brief, match_recipe
+from .ffmpeg_runtime import shutdown_media_process_runtime, start_media_process_runtime
 from .media import ffmpeg_status, inspect_video
-from .providers import PROVIDERS
+from .providers import PROVIDERS, provider_for_name, readiness_for_provider
+from .security import (
+    LoginRateLimiter, apply_security_headers, client_fingerprint,
+    exact_secret_match, same_origin,
+)
 from .storage import ID_PATTERN, JsonStore, VIDEO_EXTENSIONS, new_id, safe_name, utc_now
-from .storage import sha256
-from .timeline.contracts import us_from_seconds
-from .workflows import ProjectAnalysisWorkflow, StyleWorkflow, TimelinePreparationWorkflow, failure_fields
+from .workflows import (
+    ACTIVE_STYLE_JOB_STATES, ProjectAnalysisWorkflow, StyleWorkflow,
+    TimelinePreparationWorkflow, failure_fields,
+)
 from .timeline.migration import migrate_legacy_project, timeline_from_edit_plan
-from .timeline.storage import StaleTimelineError, TimelineStore
-from .timeline.proxies import ProxyPipeline
-from .timeline.proposals import TimelineProposalService
+from .timeline.storage import TimelineStore
 from .timeline.export import TimelineExportService
-from .timeline.lifecycle import ACTIVE_JOB_STATES, begin_timeline_job, fail_timeline_job, finish_timeline_job, mark_working_timeline_changed
+from .timeline.lifecycle import ACTIVE_JOB_STATES, begin_timeline_job, fail_timeline_job
 from .timeline.learning import approve_timeline_export
 
 
@@ -41,10 +47,42 @@ app = FastAPI(title="PB&J Recipe Engine", version="1.0.0")
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 store = JsonStore(settings.data_dir)
+UI_CSS_NAMES = ("app.css", "workflow.css", "mobile-v2.css", "troy-foundation.css", "troy-screens.css")
+UI_CSS_CONTENT = "\n".join((settings.static_dir / name).read_text() for name in UI_CSS_NAMES)
+UI_CSS_ETAG = '"%s"' % hashlib.sha256(UI_CSS_CONTENT.encode("utf-8")).hexdigest()
 upload_manifest_lock = Lock()
+upload_reserved_bytes = {}
 diagnostic_log_lock = Lock()
+approval_lock = Lock()
+render_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pbj-render")
+inspection_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pbj-inspect")
+app.router.add_event_handler("startup", start_media_process_runtime)
+app.router.add_event_handler("shutdown", shutdown_media_process_runtime)
+UPLOAD_WRITE_BUFFER_BYTES = 1024 * 1024
+ACCESS_FORM_MAX_BYTES = 1024
+PROJECT_NAME_MAX_CHARS = 120
+PROJECT_DESCRIPTION_MAX_CHARS = 1600
+# Starlette base64-encodes the JSON session before signing it. Keeping the
+# complete prospective session under 2 KiB leaves ample room below browsers'
+# common 4096-byte per-cookie limit, including the signature and attributes.
+PROJECT_SESSION_JSON_MAX_BYTES = 2048
 diagnostic_rate_windows = {}
 client_diagnostic_logger = logging.getLogger("pbj.client_diagnostic")
+server_error_logger = logging.getLogger("pbj.server_error")
+login_rate_limiter = LoginRateLimiter()
+
+
+def _finalize_upload_promotion(session_id: str, project_id: str) -> None:
+    """Commit a promotion pointer before removing its retry-safe staging data."""
+    store.update_upload_session(
+        session_id, files=[], inspection_metadata={}, name="", style_id="",
+        provider="", prompt="", intent_interpretation=None, recipe_match=None,
+        target_duration_seconds=0, total_duration_seconds=0, draft_id=None,
+        status="promoted", project_id=project_id,
+    )
+    shutil.rmtree(store.upload_session_dir(session_id) / "raw", ignore_errors=True)
+
+
 for _style in store.list_styles():
     try:
         store.backfill_learning_signals(_style["style_id"])
@@ -74,18 +112,44 @@ def recover_interrupted_jobs() -> None:
         "rendering_rough_cut": "rough_cut_failed",
         "timeline_queued": "timeline_failed",
         "planning_timeline": "timeline_failed",
-        "preparing_proxies": "timeline_failed",
+        "approval_running": "timeline_ready",
         "export_queued": "export_failed",
         "exporting": "export_failed",
+        "project_deleting": "timeline_ready",
     }
     for project in store.list_projects():
         status = project.get("status")
         if status not in project_states:
             continue
         interrupted = "This edit was interrupted when PBJ restarted. Your footage, timeline, and completed analysis are safe; try this step again."
-        fallback = project.get("job_return_status")
-        if fallback not in {"approved", "timeline_ready", "export_failed"}:
-            fallback = project_states[status]
+        if status == "project_deleting":
+            interrupted = "Project deletion was interrupted when PBJ restarted. The project was kept; you can try deleting it again."
+            fallback = project.get("deletion_return_status")
+            if fallback not in {
+                "footage_uploaded", "footage_analyzed", "rough_cut_ready",
+                "analysis_failed", "rough_cut_failed", "timeline_failed",
+                "export_failed", "timeline_ready", "approved",
+            }:
+                fallback = "timeline_ready"
+        else:
+            fallback = project.get("job_return_status")
+            if fallback not in {"approved", "timeline_ready", "export_failed"}:
+                fallback = project_states[status]
+        completed_approval = (
+            status == "approval_running"
+            and (project.get("final_approval") or {}).get("approved") is True
+            and (project.get("final_approval") or {}).get("export_id")
+            == (project.get("latest_export") or {}).get("export_id")
+        )
+        if completed_approval:
+            fallback = "approved"
+        recovery_error = None if completed_approval else interrupted
+        recovery_details = None if completed_approval else {
+            "type": "InterruptedDeletion" if status == "project_deleting" else "InterruptedJob",
+            "code": "project_deletion_interrupted" if status == "project_deleting" else "project_job_interrupted",
+            "message": interrupted,
+            "recorded_at": utc_now(),
+        }
         if status in {"export_queued", "exporting"} and project.get("active_export_id"):
             export_path = (store.project_dir(project["project_id"]) / "exports" /
                            project["active_export_id"] / "export.json")
@@ -95,20 +159,96 @@ def recover_interrupted_jobs() -> None:
                 store.write_json(export_path, export)
         store.update_project(
             project["project_id"], status=fallback, active_revision=None,
-            active_task=None, active_export_id=None, editor_read_only=False, last_error=interrupted,
+            active_task=None, active_export_id=None, last_error=recovery_error,
             job_return_status=None,
+            deletion_return_status=None,
+            last_error_details=recovery_details,
+        )
+    style_states = {
+        "analysis_queued": "analysis_failed",
+        "analyzing_references": "analysis_failed",
+        "revision_queued": "revision_failed",
+        "revising_style": "revision_failed",
+    }
+    for style in store.list_styles():
+        status = style.get("status")
+        if status == "style_deleting":
+            store.restore_style_deletion(
+                style["style_id"],
+                "Recipe archiving was interrupted when PBJ restarted. The recipe was kept; you can try again.",
+            )
+            continue
+        if status not in style_states:
+            continue
+        store.update_style(
+            style["style_id"], status=style_states[status],
+            last_error="This recipe task was interrupted when PBJ restarted. Saved reference analysis is safe; try again.",
             last_error_details={
-                "type": "InterruptedJob",
-                "message": "The in-process background job ended with the previous PBJ server process.",
+                "type": "InterruptedJob", "code": "recipe_task_interrupted",
+                "message": "The in-process recipe task ended with the previous PBJ server process.",
                 "recorded_at": utc_now(),
             },
+        )
+    # Media inspection also runs in-process.  If the server stops during that
+    # short phase, reopen the already-saved batch instead of leaving the user
+    # with an upload session that can never resume.
+    for upload_session in store.list_records(store.upload_sessions_dir, "manifest.json"):
+        raw_dir = store.upload_session_dir(upload_session["session_id"]) / "raw"
+        for partial in raw_dir.glob("incoming-*") if raw_dir.exists() else ():
+            partial.unlink(missing_ok=True)
+        if upload_session.get("status") == "promoting":
+            project_id = upload_session.get("project_id")
+            try:
+                project = store.project(project_id)
+            except (FileNotFoundError, OSError, ValueError, TypeError):
+                try:
+                    orphan = store.project_dir(project_id)
+                except (FileNotFoundError, TypeError):
+                    orphan = None
+                if orphan is not None:
+                    shutil.rmtree(orphan, ignore_errors=True)
+                store.update_upload_session(
+                    upload_session["session_id"], status="ready_for_brief", project_id=None,
+                )
+            else:
+                if not project.get("promotion_initialized"):
+                    store.delete_project(project_id)
+                    store.update_upload_session(
+                        upload_session["session_id"], status="ready_for_brief", project_id=None,
+                    )
+                else:
+                    _finalize_upload_promotion(upload_session["session_id"], project_id)
+            continue
+        if upload_session.get("status") == "promoted":
+            if (
+                upload_session.get("files")
+                or upload_session.get("inspection_metadata")
+                or upload_session.get("name")
+                or upload_session.get("style_id")
+                or upload_session.get("provider")
+                or upload_session.get("prompt")
+                or upload_session.get("intent_interpretation")
+                or upload_session.get("recipe_match")
+                or upload_session.get("target_duration_seconds")
+                or upload_session.get("draft_id")
+                or raw_dir.exists()
+            ):
+                _finalize_upload_promotion(
+                    upload_session["session_id"], upload_session.get("project_id"),
+                )
+            continue
+        if upload_session.get("status") != "inspecting":
+            continue
+        store.update_upload_session(
+            upload_session["session_id"], status="uploading",
+            inspection_interrupted_at=utc_now(),
         )
 
 
 recover_interrupted_jobs()
 
 
-PUBLIC_PATHS = {"/access", "/offline", "/manifest.webmanifest", "/service-worker.js", "/ui.css", "/health"}
+PUBLIC_PATHS = {"/access", "/manifest.webmanifest", "/ui.css", "/health"}
 
 
 def device_id(request: Request) -> str:
@@ -139,6 +279,17 @@ CLIENT_DIAGNOSTIC_EVENTS = {
     "batch_completed", "upload_failed", "visibility_hidden", "visibility_visible",
     "network_offline", "network_online", "client_error",
 }
+CLIENT_DIAGNOSTIC_STAGES = {
+    "upload_resume", "footage_picker", "file_upload", "session_created",
+    "media_inspection", "batch", "footage_page", "unknown",
+}
+CLIENT_DIAGNOSTIC_CONNECTIONS = {
+    "slow-2g", "2g", "3g", "4g", "wifi", "ethernet", "cellular", "unknown",
+}
+CLIENT_DIAGNOSTIC_ERRORS = {
+    "xhr_network", "connection_interrupted", "batch_interrupted",
+    "window_error", "unhandled_rejection",
+}
 
 
 def bounded_diagnostic_int(value, minimum: int = 0, maximum: int = 2_147_483_648):
@@ -147,11 +298,9 @@ def bounded_diagnostic_int(value, minimum: int = 0, maximum: int = 2_147_483_648
     return max(minimum, min(maximum, int(value)))
 
 
-def bounded_diagnostic_token(value, maximum: int, fallback=None):
-    raw = str(value or "").strip()
-    if not raw:
-        return fallback
-    return re.sub(r"[^A-Za-z0-9_.:-]+", "_", raw)[:maximum] or fallback
+def diagnostic_choice(value, allowed, fallback=None):
+    token = str(value or "").strip().casefold()
+    return token if token in allowed else fallback
 
 
 @app.post("/diagnostics/client", status_code=204)
@@ -165,13 +314,24 @@ async def record_client_diagnostic(request: Request):
     session_id = str(payload.get("upload_session_id") or "")
     if session_id and (not ID_PATTERN.fullmatch(session_id) or not session_id.startswith("upload-")):
         session_id = ""
+    if session_id:
+        try:
+            upload_session = store.upload_session(session_id)
+        except (FileNotFoundError, OSError, ValueError):
+            session_id = ""
+        else:
+            if upload_session.get("device_id") != device_id(request):
+                session_id = ""
+    error_code = str(payload.get("error_code") or "").strip().casefold()
+    if error_code not in CLIENT_DIAGNOSTIC_ERRORS and not re.fullmatch(r"http_[1-5][0-9]{2}", error_code):
+        error_code = None
     event = {
         "schema_version": "1.0",
         "event_id": new_id("event"),
         "recorded_at": utc_now(),
         "event": payload["event"],
         "upload_session_id": session_id or None,
-        "stage": bounded_diagnostic_token(payload.get("stage"), 48, "unknown"),
+        "stage": diagnostic_choice(payload.get("stage"), CLIENT_DIAGNOSTIC_STAGES, "unknown"),
         "file_index": bounded_diagnostic_int(payload.get("file_index"), 1, 1000),
         "total_files": bounded_diagnostic_int(payload.get("total_files"), 1, 1000),
         "file_size_bytes": bounded_diagnostic_int(payload.get("file_size_bytes")),
@@ -179,11 +339,9 @@ async def record_client_diagnostic(request: Request):
         "percent": bounded_diagnostic_int(payload.get("percent"), 0, 100),
         "attempt": bounded_diagnostic_int(payload.get("attempt"), 0, 10),
         "online": payload.get("online") if isinstance(payload.get("online"), bool) else None,
-        "visibility": str(payload.get("visibility") or "")[:16] or None,
-        "connection_type": bounded_diagnostic_token(payload.get("connection_type"), 24),
-        "error_code": bounded_diagnostic_token(payload.get("error_code"), 64),
-        "client_recorded_at": str(payload.get("client_recorded_at") or "")[:40] or None,
-        "user_agent": str(payload.get("user_agent") or "")[:240] or None,
+        "visibility": diagnostic_choice(payload.get("visibility"), {"visible", "hidden", "prerender"}),
+        "connection_type": diagnostic_choice(payload.get("connection_type"), CLIENT_DIAGNOSTIC_CONNECTIONS),
+        "error_code": error_code,
         "viewport_width": bounded_diagnostic_int(payload.get("viewport_width"), 1, 10000),
         "viewport_height": bounded_diagnostic_int(payload.get("viewport_height"), 1, 10000),
     }
@@ -230,13 +388,49 @@ def upload_temp_dir(prefix: str) -> Path:
     return Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
 
 
+async def cache_bounded_access_form_body(request: Request) -> Response | None:
+    """Read a login form incrementally and replay it to the route parser."""
+    declared_length = request.headers.get("content-length")
+    if declared_length is not None:
+        if not re.fullmatch(r"[0-9]+", declared_length):
+            return Response("Invalid Content-Length.", status_code=400)
+        significant_length = declared_length.lstrip("0") or "0"
+        limit_text = str(ACCESS_FORM_MAX_BYTES)
+        if (
+            len(significant_length) > len(limit_text)
+            or (
+                len(significant_length) == len(limit_text)
+                and significant_length > limit_text
+            )
+        ):
+            return Response("Request body is too large.", status_code=413)
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(chunk) > ACCESS_FORM_MAX_BYTES - len(body):
+            return Response("Request body is too large.", status_code=413)
+        body.extend(chunk)
+    # BaseHTTPMiddleware replays a cached body to the downstream Request. This
+    # keeps FastAPI's normal form parsing intact without ever reading an
+    # unbounded access-code submission into memory.
+    request._body = bytes(body)
+    return None
+
+
 @app.middleware("http")
 async def private_beta_access(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/static/") or path in PUBLIC_PATHS or not settings.access_code:
-        device_id(request)
+    if not same_origin(request, hosted=settings.hosted_mode):
+        return Response("Cross-site request blocked.", status_code=403)
+    if request.method == "POST" and path in {"/access", "/owner-access"}:
+        rejection = await cache_bounded_access_form_body(request)
+        if rejection is not None:
+            return rejection
+    if path.startswith("/static/") or path in PUBLIC_PATHS:
         return await call_next(request)
-    if not request.session.get("authorized"):
+    if not settings.access_code:
+        device_id(request)
+    elif not request.session.get("authorized"):
         if path != "/access":
             return RedirectResponse("/access", status_code=303)
     # Device ownership is enforced for every project page, action, and output.
@@ -264,8 +458,28 @@ app.add_middleware(
     secret_key=settings.session_secret,
     max_age=settings.session_days * 24 * 60 * 60,
     same_site="lax",
-    https_only=os.getenv("PBJ_HTTPS_ONLY", "false").lower() == "true",
+    https_only=settings.https_only,
 )
+
+
+@app.middleware("http")
+async def security_response_headers(request: Request, call_next):
+    response = await call_next(request)
+    return apply_security_headers(
+        response, path=request.url.path, hosted=settings.hosted_mode,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_server_error(request: Request, exc: Exception):
+    """Return a privacy-safe 500 with the same browser defenses as other responses."""
+    server_error_logger.error(
+        "PBJ_SERVER_ERROR error_type=%s", type(exc).__name__,
+    )
+    response = Response("Internal Server Error", status_code=500)
+    return apply_security_headers(
+        response, path=request.url.path, hosted=settings.hosted_mode,
+    )
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
@@ -274,20 +488,12 @@ async def web_manifest():
 
 
 @app.get("/ui.css", include_in_schema=False)
-async def ui_styles():
-    """Serve the complete UI outside the retired service-worker static cache."""
-    names = ("app.css", "workflow.css", "mobile-v2.css", "troy-foundation.css", "troy-screens.css")
-    content = "\n".join((settings.static_dir / name).read_text() for name in names)
-    return Response(content=content, media_type="text/css", headers={"Cache-Control": "no-store"})
-
-
-@app.get("/service-worker.js", include_in_schema=False)
-async def service_worker():
-    return FileResponse(
-        settings.static_dir / "service-worker.js",
-        media_type="application/javascript",
-        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
-    )
+async def ui_styles(request: Request):
+    """Serve the versioned UI bundle without rereading five files per request."""
+    headers = {"Cache-Control": "public, max-age=3600", "ETag": UI_CSS_ETAG}
+    if request.headers.get("if-none-match") == UI_CSS_ETAG:
+        return Response(status_code=304, headers=headers)
+    return Response(content=UI_CSS_CONTENT, media_type="text/css", headers=headers)
 
 
 def target_seconds_from_prompt(prompt: str, default: int = 60) -> int:
@@ -320,59 +526,115 @@ def readiness():
     }
 
 
-def preferred_provider() -> str:
-    """Choose the configured analyzer used by the normal provider-neutral flow."""
-    provider_status = readiness()["providers"]
-    if provider_status.get("pegasus", {}).get("configured"):
-        return "pegasus"
-    return "gemini"
+def analyzer_provider() -> str:
+    """Return the sole analyzer used by the production workflow."""
+    return "pegasus"
+
+
+def login_client_key(request: Request) -> str:
+    host = request.client.host if request.client else "unknown"
+    return client_fingerprint(host, settings.session_secret)
+
+
+def access_rate_limited(request: Request, retry_after: int):
+    return templates.TemplateResponse(
+        request, "access.html", {"error": False, "rate_limited": True},
+        status_code=429, headers={"Retry-After": str(retry_after)},
+    )
 
 
 @app.get("/access", response_class=HTMLResponse)
-async def access_page(request: Request, error: bool = False):
+async def access_page(request: Request, error: bool = False, rate_limited: bool = False):
     if request.session.get("authorized"):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse(request, "access.html", {"error": error})
+    return templates.TemplateResponse(
+        request, "access.html", {"error": error, "rate_limited": rate_limited},
+    )
 
 
 @app.post("/access")
 async def unlock_beta(request: Request, code: str = Form(...)):
-    supplied = code.strip().casefold()
-    if supplied == settings.access_code.strip().casefold() or (settings.owner_code and supplied == settings.owner_code.strip().casefold()):
+    client_key = login_client_key(request)
+    retry_after = login_rate_limiter.retry_after(client_key, "access")
+    if retry_after:
+        return access_rate_limited(request, retry_after)
+    access_match = exact_secret_match(code, settings.access_code)
+    owner_match = exact_secret_match(code, settings.owner_code)
+    if access_match or owner_match:
+        saved_device = request.session.get("device_id") if not settings.shared_workspace else None
+        request.session.clear()
+        if saved_device:
+            request.session["device_id"] = saved_device
         request.session["authorized"] = True
-        request.session["owner"] = bool(settings.owner_code and supplied == settings.owner_code.strip().casefold())
+        request.session["owner"] = owner_match
         device_id(request)
+        login_rate_limiter.record_success(client_key, "access")
         return RedirectResponse("/", status_code=303)
+    retry_after = login_rate_limiter.record_failure(client_key, "access")
+    if retry_after:
+        return access_rate_limited(request, retry_after)
     return RedirectResponse("/access?error=true", status_code=303)
 
 
 @app.post("/owner-access")
 async def unlock_owner(request: Request, code: str = Form(...)):
-    if settings.owner_code and code.strip().casefold() == settings.owner_code.strip().casefold():
+    client_key = login_client_key(request)
+    retry_after = login_rate_limiter.retry_after(client_key, "owner")
+    if retry_after:
+        return templates.TemplateResponse(
+            request, "more.html", {"owner_state": "rate_limited"},
+            status_code=429, headers={"Retry-After": str(retry_after)},
+        )
+    if exact_secret_match(code, settings.owner_code):
         request.session["owner"] = True
+        login_rate_limiter.record_success(client_key, "owner")
         return RedirectResponse("/more?owner=unlocked", status_code=303)
+    retry_after = login_rate_limiter.record_failure(client_key, "owner")
+    if retry_after:
+        return templates.TemplateResponse(
+            request, "more.html", {"owner_state": "rate_limited"},
+            status_code=429, headers={"Retry-After": str(retry_after)},
+        )
     return RedirectResponse("/more?owner=invalid", status_code=303)
 
 
+@app.post("/logout")
+async def logout(request: Request):
+    saved_device = request.session.get("device_id") if not settings.shared_workspace else None
+    request.session.clear()
+    if saved_device:
+        request.session["device_id"] = saved_device
+    return RedirectResponse("/access" if settings.access_code else "/", status_code=303)
+
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, approved: bool = False):
-    hour = datetime.now().hour
-    greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
-    return templates.TemplateResponse(request, "welcome.html", {"projects": visible_projects(request)[:3], "greeting": greeting, "approved": approved})
+async def dashboard(
+    request: Request, approved: bool = False, message: str = "", remote_cleanup: str = "",
+):
+    return templates.TemplateResponse(request, "welcome.html", {
+        "style_deleted": message == "style-deleted",
+        "remote_cleanup_warning": (
+            message == "style-deleted" and remote_cleanup == "unavailable"
+        ),
+    })
 
 
 @app.get("/projects", response_class=HTMLResponse)
-async def projects_dashboard(request: Request):
+async def projects_dashboard(
+    request: Request, message: str = "", remote_cleanup: str = "",
+):
     return templates.TemplateResponse(request, "dashboard.html", {
-        "styles": store.list_styles(),
         "projects": visible_projects(request),
-        "readiness": readiness(),
+        "project_deleted": message == "deleted",
+        "remote_cleanup_warning": (
+            message == "deleted" and remote_cleanup == "unavailable"
+        ),
     })
 
 
 @app.get("/more", response_class=HTMLResponse)
 async def more_page(request: Request, owner: str = ""):
-    return templates.TemplateResponse(request, "more.html", {"owner_state": owner, "readiness": readiness()})
+    return templates.TemplateResponse(request, "more.html", {"owner_state": owner})
 
 
 @app.get("/styles", response_class=HTMLResponse)
@@ -390,25 +652,51 @@ async def settings_page(request: Request, saved: bool = False):
 
 
 @app.post("/settings")
-async def update_settings(request: Request, openai_key: str = Form(""), gemini_key: str = Form(""), twelve_labs_key: str = Form("")):
+async def update_settings(request: Request, openai_key: str = Form(""), twelve_labs_key: str = Form("")):
     require_owner(request)
     if settings.hosted_mode:
         raise HTTPException(403, "Hosted connections are managed securely in Render.")
-    save_api_keys({"OPENAI_API_KEY": openai_key, "GEMINI_API_KEY": gemini_key, "TWELVE_LABS_API_KEY": twelve_labs_key})
+    save_api_keys({"OPENAI_API_KEY": openai_key, "TWELVE_LABS_API_KEY": twelve_labs_key})
     return RedirectResponse("/settings?saved=true", status_code=303)
 
 
 @app.get("/assets", response_class=HTMLResponse)
 async def remote_assets_page(request: Request, message: str = ""):
     require_owner(request)
-    return templates.TemplateResponse(request, "assets.html", {"assets": store.remote_assets(), "readiness": readiness(), "message": message})
+    assets = store.remote_assets()
+    cleanup_tombstones = [{
+        "recorded_at": item.get("recorded_at"),
+        "local_context": item.get("local_context"),
+        "status": item.get("status"),
+    } for item in store.remote_cleanup_tombstones()]
+    return templates.TemplateResponse(request, "assets.html", {
+        "assets": assets,
+        "cleanup_tombstones": cleanup_tombstones,
+        "message": message,
+        "total_asset_records": len(assets) + len(cleanup_tombstones),
+        "retained_asset_count": (
+            sum(1 for asset in assets if asset.get("retained"))
+            + len(cleanup_tombstones)
+        ),
+    })
+
+
+async def cleanup_remote_asset(owner_type: str, owner_id: str, provider: str, asset_id: str) -> bool:
+    """Delete through a current provider, or truthfully mark retired cleanup unavailable."""
+    provider_type = provider_for_name(provider)
+    if provider_type is None:
+        store.mark_remote_asset_cleanup_unavailable(owner_type, owner_id, provider, asset_id)
+        return False
+    await provider_type().delete_asset(asset_id)
+    store.mark_remote_asset_deleted(owner_type, owner_id, provider, asset_id)
+    return True
 
 
 @app.post("/assets/delete")
 async def delete_remote_asset(request: Request, owner_type: str = Form(...), owner_id: str = Form(...),
                               provider: str = Form(...), asset_id: str = Form(...)):
     require_owner(request)
-    if owner_type not in ("style", "project") or provider not in PROVIDERS:
+    if owner_type not in ("style", "project"):
         raise HTTPException(400, "Invalid remote asset")
     match = next((item for item in store.remote_assets() if item.get("owner_type") == owner_type and item.get("owner_id") == owner_id and item.get("provider") == provider and item.get("id") == asset_id), None)
     if not match:
@@ -416,10 +704,14 @@ async def delete_remote_asset(request: Request, owner_type: str = Form(...), own
     if match.get("status") == "deleted":
         return RedirectResponse("/assets?message=already-deleted", status_code=303)
     try:
-        await PROVIDERS[provider]().delete_asset(asset_id)
-        store.mark_remote_asset_deleted(owner_type, owner_id, provider, asset_id)
-    except Exception as exc:
-        raise HTTPException(502, "The provider could not delete this asset: %s" % exc)
+        deleted = await cleanup_remote_asset(owner_type, owner_id, provider, asset_id)
+    except Exception:
+        raise HTTPException(502, "The provider could not delete this asset. Try again later.")
+    if not deleted:
+        raise HTTPException(
+            409,
+            "PBJ no longer supports that provider, so remote deletion could not be verified. Local files were not changed.",
+        )
     return RedirectResponse("/assets?message=deleted", status_code=303)
 
 
@@ -499,13 +791,15 @@ async def style_detail(request: Request, style_id: str):
     return RedirectResponse("/styles/%s/%s" % (style_id, destination), status_code=303)
 
 
-def style_context(request: Request, style_id: str):
+def style_context(request: Request, style_id: str, *, include_learning: bool = False):
     try:
         profile = store.style(style_id)
     except FileNotFoundError:
         raise HTTPException(404, "Style not found")
-    return {"request": request, "style": profile, "analyses": store.style_analyses(style_id),
-            "learning_state": store.learning_state(style_id), "readiness": readiness()}
+    context = {"request": request, "style": profile}
+    if include_learning:
+        context["learning_state"] = store.learning_state(style_id)
+    return context
 
 
 @app.get("/styles/{style_id}/analysis", response_class=HTMLResponse)
@@ -524,7 +818,7 @@ async def style_progress_page(request: Request, style_id: str):
 
 @app.get("/styles/{style_id}/review", response_class=HTMLResponse)
 async def style_review_page(request: Request, style_id: str):
-    context = style_context(request, style_id)
+    context = style_context(request, style_id, include_learning=True)
     if not context["style"].get("style_analysis"):
         return RedirectResponse("/styles/%s/analysis" % style_id, status_code=303)
     return templates.TemplateResponse(request, "style_review.html", context)
@@ -534,20 +828,43 @@ async def style_review_page(request: Request, style_id: str):
 async def delete_style(request: Request, style_id: str):
     require_owner(request)
     try:
-        profile = store.style(style_id)
+        profile = store.begin_style_deletion(
+            style_id, reject_statuses=ACTIVE_STYLE_JOB_STATES,
+        )
     except FileNotFoundError:
         raise HTTPException(404, "Style not found")
-    linked = [project for project in store.list_projects() if project.get("style_id") == style_id]
-    if linked:
-        raise HTTPException(409, "This style is used by an existing project; delete or archive that project first.")
-    for asset in [item for item in store.remote_assets() if item.get("owner_type") == "style" and item.get("owner_id") == style_id and item.get("status") != "deleted"]:
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    cleanup_unavailable = []
+    try:
+        for asset in [item for item in store.remote_assets() if item.get("owner_type") == "style" and item.get("owner_id") == style_id and item.get("status") != "deleted"]:
+            deleted = await cleanup_remote_asset(
+                "style", style_id, asset.get("provider"), asset.get("id"),
+            )
+            if not deleted:
+                cleanup_unavailable.append(asset)
+        for asset in cleanup_unavailable:
+            store.record_remote_cleanup_tombstone(
+                "style", style_id, asset.get("provider"), asset.get("id"),
+                local_context="style_archive",
+            )
+        store.delete_style(profile["style_id"])
+    except BaseException as exc:
         try:
-            await PROVIDERS[asset["provider"]]().delete_asset(asset["id"])
-            store.mark_remote_asset_deleted("style", style_id, asset["provider"], asset["id"])
-        except Exception as exc:
-            raise HTTPException(502, "The style could not be deleted because its remote %s asset could not be removed: %s" % (asset["provider"].title(), exc))
-    store.delete_style(profile["style_id"])
-    return RedirectResponse("/?message=style-deleted", status_code=303)
+            store.restore_style_deletion(
+                style_id,
+                "The recipe was kept because its remote analysis cleanup did not finish. Try again later.",
+            )
+        except Exception:
+            pass
+        if not isinstance(exc, Exception):
+            raise
+        raise HTTPException(
+            502,
+            "The style was kept because its remote analysis copy could not be deleted. Try again later.",
+        )
+    suffix = "&remote_cleanup=unavailable" if cleanup_unavailable else ""
+    return RedirectResponse("/?message=style-deleted" + suffix, status_code=303)
 
 
 async def _run_style_analysis(style_id: str, provider: str) -> None:
@@ -565,14 +882,18 @@ async def analyze_style(style_id: str, background_tasks: BackgroundTasks):
         profile = store.style(style_id)
     except FileNotFoundError:
         raise HTTPException(404, "Style not found")
-    if profile.get("status") == "analyzing_references":
-        raise HTTPException(409, "This style is already being analyzed")
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(400, "Connect OpenAI before building an editing recipe")
-    provider = preferred_provider()
+    provider = analyzer_provider()
     if not PROVIDERS[provider]().readiness().configured:
         raise HTTPException(400, "Add the %s API key to .env" % provider.title())
-    store.update_style(style_id, status="analysis_queued", last_error=None, active_started_at=utc_now())
+    try:
+        store.transition_style(
+            style_id, reject_statuses=ACTIVE_STYLE_JOB_STATES,
+            status="analysis_queued", last_error=None, active_started_at=utc_now(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     background_tasks.add_task(_run_style_analysis, style_id, provider)
     return RedirectResponse("/styles/%s/progress" % style_id, status_code=303)
 
@@ -620,28 +941,68 @@ async def revise_style(request: Request, style_id: str, background_tasks: Backgr
         raise HTTPException(400, "Describe what should change")
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(400, "Add OPENAI_API_KEY before revising the style")
-    if profile.get("status") == "revising_style":
-        raise HTTPException(409, "This style is already being revised")
-    store.update_style(style_id, status="revision_queued", last_error=None, active_started_at=utc_now())
+    try:
+        store.transition_style(
+            style_id, reject_statuses=ACTIVE_STYLE_JOB_STATES,
+            status="revision_queued", last_error=None, active_started_at=utc_now(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     background_tasks.add_task(_run_style_revision, style_id, feedback.strip())
     return RedirectResponse("/styles/%s/progress" % style_id, status_code=303)
 
 
+def ensured_project_draft(request: Request, *, create: bool = False) -> dict:
+    """Return a browser-owned draft with a stable identity for upload binding."""
+    value = request.session.get("project_draft")
+    draft = dict(value) if isinstance(value, dict) else {}
+    if not draft and not create:
+        return {}
+    if not draft.get("draft_id"):
+        draft["draft_id"] = new_id("draft")
+        request.session["project_draft"] = draft
+    return draft
+
+
 @app.get("/projects/new", response_class=HTMLResponse)
 async def new_project(request: Request):
-    draft = request.session.get("project_draft", {})
+    draft = ensured_project_draft(request, create=True)
     return templates.TemplateResponse(request, "project_describe.html", {"draft": draft})
+
+
+@app.post("/projects/new/fresh")
+async def start_fresh_project(request: Request):
+    """Begin a distinct draft through a same-origin-protected mutation."""
+    request.session.pop("project_draft", None)
+    request.session.pop("active_upload_session_id", None)
+    return RedirectResponse("/projects/new", status_code=303)
 
 
 @app.post("/projects/new/describe")
 async def save_project_description(request: Request, name: str = Form(""), description: str = Form(...)):
-    if not description.strip():
+    if len(name) > PROJECT_NAME_MAX_CHARS:
+        raise HTTPException(400, "The project name is too long.")
+    if len(description) > PROJECT_DESCRIPTION_MAX_CHARS:
+        raise HTTPException(400, "The description is too long for this private demo.")
+    clean_name = name.strip()
+    clean_description = description.strip()
+    if not clean_description:
         raise HTTPException(400, "Describe the video you want to create.")
-    request.session["project_draft"] = {
-        "name": name.strip(),
-        "description": description.strip(),
+    draft = ensured_project_draft(request, create=True)
+    project_draft = {
+        "draft_id": draft["draft_id"],
+        "name": clean_name,
+        "description": clean_description,
         "style_id": "",
     }
+    prospective_session = dict(request.session)
+    prospective_session["project_draft"] = project_draft
+    serialized_session = json.dumps(prospective_session, ensure_ascii=True).encode("utf-8")
+    if len(serialized_session) > PROJECT_SESSION_JSON_MAX_BYTES:
+        raise HTTPException(
+            400, "The description is too long for this private demo. Shorten it and try again.",
+        )
+    request.session["project_draft"] = project_draft
     return RedirectResponse("/projects/new/references", status_code=303)
 
 
@@ -719,10 +1080,13 @@ async def save_project_references(
         draft["style_id"] = profile["style_id"]
         request.session["project_draft"] = draft
         provider_status = readiness()["providers"]
-        provider = preferred_provider()
+        provider = analyzer_provider()
         if not provider_status.get(provider, {}).get("configured"):
             raise HTTPException(400, "Video understanding is not configured. Open More, then Connections.")
-        store.update_style(profile["style_id"], status="analysis_queued", last_error=None, active_started_at=utc_now())
+        store.transition_style(
+            profile["style_id"], reject_statuses=ACTIVE_STYLE_JOB_STATES,
+            status="analysis_queued", last_error=None, active_started_at=utc_now(),
+        )
         background_tasks.add_task(_run_project_reference_analysis, profile["style_id"], provider)
         return RedirectResponse("/projects/new/references-progress", status_code=303)
     finally:
@@ -754,12 +1118,17 @@ async def retry_project_reference_analysis(request: Request, background_tasks: B
         style = store.style(style_id)
     except FileNotFoundError:
         return RedirectResponse("/projects/new/references", status_code=303)
-    if style.get("status") in {"analysis_queued", "analyzing_references"}:
-        raise HTTPException(409, "Reference analysis is already running")
-    provider = preferred_provider()
+    provider = analyzer_provider()
     if not PROVIDERS[provider]().readiness().configured or not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(400, "Connect video understanding and OpenAI before trying again")
-    store.update_style(style_id, status="analysis_queued", last_error=None, last_error_details=None, active_started_at=utc_now())
+    try:
+        store.transition_style(
+            style_id, reject_statuses=ACTIVE_STYLE_JOB_STATES,
+            status="analysis_queued", last_error=None, last_error_details=None,
+            active_started_at=utc_now(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     background_tasks.add_task(_run_project_reference_analysis, style_id, provider)
     return RedirectResponse("/projects/new/references-progress", status_code=303)
 
@@ -792,6 +1161,18 @@ def engine_decides_style() -> dict:
     return store.approve_recipe_version(profile["style_id"])
 
 
+def upload_session_matches_draft(upload_session: dict, draft: dict, style_id: str = "") -> bool:
+    """Only resume staging that was created for this exact project draft."""
+    session_draft_id = upload_session.get("draft_id")
+    if session_draft_id and session_draft_id != draft.get("draft_id"):
+        return False
+    if (upload_session.get("name") or "") != (draft.get("name") or "").strip():
+        return False
+    if (upload_session.get("prompt") or "") != (draft.get("description") or "").strip():
+        return False
+    return not style_id or upload_session.get("style_id") == style_id
+
+
 @app.get("/projects/new/engine-decides")
 async def choose_engine_decides():
     return RedirectResponse("/projects/new", status_code=303)
@@ -799,9 +1180,10 @@ async def choose_engine_decides():
 
 @app.get("/projects/new/footage", response_class=HTMLResponse)
 async def project_footage_page(request: Request, style_id: str = "", session_id: str = ""):
-    draft = request.session.get("project_draft")
+    draft = ensured_project_draft(request)
     if not draft or not draft.get("description"):
         return RedirectResponse("/projects/new", status_code=303)
+    requested_style_id = style_id
     style_id = style_id or draft.get("style_id", "")
     style = None
     if style_id:
@@ -813,8 +1195,14 @@ async def project_footage_page(request: Request, style_id: str = "", session_id:
             raise HTTPException(404, "Reference direction not found")
         if not style.get("approval", {}).get("approved"):
             return RedirectResponse("/projects/new/references-progress", status_code=303)
+        if requested_style_id and draft.get("style_id") != requested_style_id:
+            # Preserve the saved-link compatibility route that carries an
+            # explicitly approved recipe into the prompt-first footage step.
+            draft["style_id"] = requested_style_id
+            request.session["project_draft"] = draft
     uploaded_session = None
-    session_id = session_id or request.session.get("active_upload_session_id", "")
+    active_session_id = request.session.get("active_upload_session_id", "")
+    session_id = session_id or active_session_id
     if session_id:
         try:
             uploaded_session = store.upload_session(session_id)
@@ -823,6 +1211,21 @@ async def project_footage_page(request: Request, style_id: str = "", session_id:
             uploaded_session = None
         if uploaded_session and uploaded_session.get("device_id") != device_id(request):
             raise HTTPException(404, "Upload session not found")
+        if uploaded_session and (
+            uploaded_session.get("status") in {"promoting", "promoted"}
+            or not upload_session_matches_draft(uploaded_session, draft, style_id)
+        ):
+            # A completed project or a newly described project must never pick
+            # up staging from an older draft merely because its cookie remains.
+            if active_session_id == session_id:
+                request.session.pop("active_upload_session_id", None)
+            uploaded_session = None
+        elif uploaded_session and not uploaded_session.get("draft_id"):
+            # One-time compatibility binding for a pre-audit session whose exact
+            # stored fields match the browser's current draft.
+            uploaded_session = store.update_upload_session(
+                session_id, draft_id=draft["draft_id"],
+            )
     return templates.TemplateResponse(request, "project_footage.html", {
         "style": style, "draft": draft, "uploaded_session": uploaded_session,
     })
@@ -831,7 +1234,15 @@ async def project_footage_page(request: Request, style_id: str = "", session_id:
 @app.post("/projects/upload-session")
 async def start_upload_session(request: Request, name: str = Form(""), style_id: str = Form(""),
                                prompt: str = Form(""), target_seconds: int = Form(60)):
-    provider = preferred_provider()
+    draft = ensured_project_draft(request)
+    if (
+        not draft.get("description")
+        or name.strip() != (draft.get("name") or "").strip()
+        or prompt.strip() != draft["description"].strip()
+        or style_id != (draft.get("style_id") or "")
+    ):
+        raise HTTPException(409, "This project draft changed. Return to the first step and try again.")
+    provider = analyzer_provider()
     engine_decides_style()
     target_seconds = target_seconds_from_prompt(prompt, target_seconds)
     intent = interpret_brief(prompt, target_seconds)
@@ -850,95 +1261,267 @@ async def start_upload_session(request: Request, name: str = Form(""), style_id:
     selected_style_id = recipe_match["selected_recipe_id"]
     session = store.create_upload_session(
         name, selected_style_id, provider, prompt, target_seconds, intent, recipe_match, device_id(request),
+        draft_id=draft["draft_id"],
     )
     request.session["active_upload_session_id"] = session["session_id"]
     return {"session_id": session["session_id"], "uploaded_files": 0}
 
 
 @app.post("/projects/upload-session/{session_id}/file")
-async def upload_session_file(request: Request, session_id: str, footage: UploadFile = File(...)):
+async def upload_session_file(request: Request, session_id: str):
     try:
         session = store.upload_session(session_id)
     except (FileNotFoundError, OSError, ValueError):
         raise HTTPException(404, "Upload session not found. Start the upload again.")
     if session.get("device_id") != device_id(request):
         raise HTTPException(404, "Upload session not found. Start the upload again.")
-    suffix = Path(footage.filename or "").suffix.lower()
-    if suffix not in VIDEO_EXTENSIONS:
-        raise HTTPException(400, "Unsupported video file: %s" % footage.filename)
-    raw_dir = store.upload_session_dir(session_id) / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    safe_filename = safe_name(footage.filename or "raw.mp4")
-    target = raw_dir / ("incoming-%s-%s" % (os.urandom(6).hex(), safe_filename))
+    if session.get("status") != "uploading":
+        raise HTTPException(409, "This upload batch is already being checked.")
+    encoded_filename = request.headers.get("x-pbj-filename", "")
     try:
-        written = 0
-        with target.open("wb") as output:
-            while chunk := await footage.read(1024 * 1024):
-                written += len(chunk)
-                if written + sum(item.get("size_bytes", 0) for item in session.get("files", [])) > settings.max_upload_batch_bytes:
-                    raise HTTPException(413, "This upload is larger than the 2 GB batch limit.")
-                output.write(chunk)
-    except Exception:
-        target.unlink(missing_ok=True)
-        raise
-    # Finalize the short manifest update as one critical section. Desktop may
-    # upload two files concurrently; without this lock, both completions could
-    # observe the same list length and overwrite the same sequential slot.
+        original_name = unquote(encoded_filename, errors="strict")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "The video filename is invalid.")
+    if not original_name or len(original_name) > 1024:
+        raise HTTPException(400, "A video filename is required.")
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in VIDEO_EXTENSIONS:
+        raise HTTPException(400, "Unsupported video file type.")
+    safe_filename = safe_name(original_name)
+    upload_id = request.headers.get("x-pbj-upload-id", "").strip()
+    if upload_id and not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", upload_id):
+        raise HTTPException(400, "The upload identifier is invalid.")
+    content_length = request.headers.get("content-length")
+    declared_bytes = None
+    if content_length:
+        try:
+            declared_bytes = int(content_length)
+        except ValueError:
+            raise HTTPException(400, "The upload size is invalid.")
+        if declared_bytes < 0:
+            raise HTTPException(400, "The upload size is invalid.")
+    # Reserve capacity before reading the body. Two desktop uploads may arrive
+    # together; without a reservation, each can independently believe the full
+    # remaining 2 GB is available and temporarily exhaust ephemeral storage.
     with upload_manifest_lock:
         session = store.upload_session(session_id)
-        original_name = footage.filename or safe_filename
-        duplicate = next(
-            (item for item in session.get("files", [])
-             if item.get("original_name") == original_name and item.get("size_bytes") == target.stat().st_size),
-            None,
-        )
-        current_bytes = sum(item.get("size_bytes", 0) for item in session.get("files", []))
-        if not duplicate and current_bytes + target.stat().st_size > settings.max_upload_batch_bytes:
-            target.unlink(missing_ok=True)
+        if session.get("device_id") != device_id(request):
+            raise HTTPException(404, "Upload session not found. Start the upload again.")
+        if session.get("status") != "uploading":
+            raise HTTPException(409, "This upload batch is already being checked.")
+        if upload_id:
+            previously_saved = next(
+                (item for item in session.get("files", []) if item.get("upload_id") == upload_id),
+                None,
+            )
+            if previously_saved:
+                if (
+                    previously_saved.get("original_name") != original_name
+                    or (declared_bytes is not None and previously_saved.get("size_bytes") != declared_bytes)
+                ):
+                    raise HTTPException(409, "This upload identifier was already used for another video.")
+                return {
+                    "file_id": previously_saved["file_id"],
+                    "filename": previously_saved["original_name"],
+                    "size_bytes": previously_saved["size_bytes"],
+                    "uploaded_files": len(session["files"]),
+                }
+        existing_bytes = sum(item.get("size_bytes", 0) for item in session.get("files", []))
+        already_reserved = upload_reserved_bytes.get(session_id, 0)
+        available_bytes = settings.max_upload_batch_bytes - existing_bytes - already_reserved
+        reservation_bytes = available_bytes if declared_bytes is None else declared_bytes
+        if reservation_bytes < 0 or reservation_bytes > available_bytes:
             raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
-        if duplicate:
+        upload_reserved_bytes[session_id] = already_reserved + reservation_bytes
+    target = None
+    final_target = None
+    manifest_committed = False
+    try:
+        raw_dir = store.upload_session_dir(session_id) / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        target = raw_dir / ("incoming-%s-%s" % (os.urandom(6).hex(), safe_filename))
+        written = 0
+        digest = hashlib.sha256()
+        pending = bytearray()
+        with target.open("wb") as output:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if written > reservation_bytes:
+                    raise HTTPException(413, "This upload is larger than the 2 GB batch limit.")
+                digest.update(chunk)
+                # ASGI servers may yield many small network chunks. Batch them
+                # before crossing into the file-writing thread so a large upload
+                # does not schedule tens of thousands of tiny executor jobs.
+                view = memoryview(chunk)
+                while view:
+                    if not pending and len(view) >= UPLOAD_WRITE_BUFFER_BYTES:
+                        await asyncio.to_thread(
+                            output.write, view[:UPLOAD_WRITE_BUFFER_BYTES],
+                        )
+                        view = view[UPLOAD_WRITE_BUFFER_BYTES:]
+                        continue
+                    take = min(UPLOAD_WRITE_BUFFER_BYTES - len(pending), len(view))
+                    pending.extend(view[:take])
+                    view = view[take:]
+                    if len(pending) == UPLOAD_WRITE_BUFFER_BYTES:
+                        await asyncio.to_thread(output.write, bytes(pending))
+                        pending.clear()
+            if pending:
+                await asyncio.to_thread(output.write, bytes(pending))
+        if written == 0:
+            raise HTTPException(400, "The uploaded video is empty.")
+        # Finalize the short manifest update as one critical section. Desktop may
+        # upload two files concurrently; without this lock, both completions could
+        # claim the same next slot and overwrite one another.
+        with upload_manifest_lock:
+            session = store.upload_session(session_id)
+            if session.get("status") != "uploading":
+                raise HTTPException(409, "This upload batch is already being checked.")
+            checksum = digest.hexdigest()
+            duplicate = next(
+                (item for item in session.get("files", [])
+                 if item.get("original_name") == original_name
+                 and item.get("size_bytes") == target.stat().st_size
+                 and item.get("sha256") == checksum),
+                None,
+            )
+            current_bytes = sum(item.get("size_bytes", 0) for item in session.get("files", []))
+            if not duplicate and current_bytes + target.stat().st_size > settings.max_upload_batch_bytes:
+                raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
+            if duplicate:
+                target.unlink(missing_ok=True)
+                record = dict(duplicate)
+                if upload_id and record.get("upload_id") != upload_id:
+                    record["upload_id"] = upload_id
+                    files = [record if item.get("file_id") == record["file_id"] else item
+                             for item in session.get("files", [])]
+                    session = store.update_upload_session(session_id, files=files)
+                    manifest_committed = True
+            else:
+                occupied_indices = [
+                    int(match.group(1))
+                    for item in session.get("files", [])
+                    if (match := re.fullmatch(r"raw-(\d+)", item.get("file_id", "")))
+                ]
+                occupied_indices.extend(
+                    int(match.group(1))
+                    for path in raw_dir.iterdir()
+                    if (match := re.match(r"(\d+)-", path.name))
+                )
+                index = max(occupied_indices, default=0) + 1
+                final_target = raw_dir / ("%03d-%s" % (index, safe_filename))
+                target.replace(final_target)
+                record = {
+                    "file_id": "raw-%03d" % index,
+                    "original_name": original_name,
+                    "stored_path": str(final_target.relative_to(store.data_dir)),
+                    "size_bytes": final_target.stat().st_size,
+                    "sha256": checksum,
+                }
+                if upload_id:
+                    record["upload_id"] = upload_id
+                session = store.update_upload_session(session_id, files=session.get("files", []) + [record])
+                manifest_committed = True
+        return {"file_id": record["file_id"], "filename": record["original_name"], "size_bytes": record["size_bytes"], "uploaded_files": len(session["files"])}
+    except BaseException:
+        if target is not None:
             target.unlink(missing_ok=True)
-            record = duplicate
-        else:
-            index = len(session.get("files", [])) + 1
-            final_target = raw_dir / ("%03d-%s" % (index, safe_filename))
-            target.replace(final_target)
-            record = {
-                "file_id": "raw-%03d" % index,
-                "original_name": original_name,
-                "stored_path": str(final_target.relative_to(store.data_dir)),
-                "size_bytes": final_target.stat().st_size,
-            }
-            session = store.update_upload_session(session_id, files=session.get("files", []) + [record])
-    return {"file_id": record["file_id"], "filename": record["original_name"], "size_bytes": record["size_bytes"], "uploaded_files": len(session["files"])}
+        if final_target is not None and not manifest_committed:
+            final_target.unlink(missing_ok=True)
+        raise
+    finally:
+        with upload_manifest_lock:
+            remaining_reservation = upload_reserved_bytes.get(session_id, 0) - reservation_bytes
+            if remaining_reservation > 0:
+                upload_reserved_bytes[session_id] = remaining_reservation
+            else:
+                upload_reserved_bytes.pop(session_id, None)
 
 
 @app.post("/projects/upload-session/{session_id}/complete")
 async def complete_upload_session(request: Request, session_id: str):
-    try:
-        session = store.upload_session(session_id)
-    except (FileNotFoundError, OSError, ValueError):
-        raise HTTPException(404, "Upload session not found. Start the upload again.")
-    if session.get("device_id") != device_id(request):
-        raise HTTPException(404, "Upload session not found. Start the upload again.")
-    if sum(item.get("size_bytes", 0) for item in session.get("files", [])) > settings.max_upload_batch_bytes:
-        raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
-    if not session.get("files"):
-        raise HTTPException(400, "Choose at least one video before continuing.")
+    with upload_manifest_lock:
+        try:
+            session = store.upload_session(session_id)
+        except (FileNotFoundError, OSError, ValueError):
+            raise HTTPException(404, "Upload session not found. Start the upload again.")
+        if session.get("device_id") != device_id(request):
+            raise HTTPException(404, "Upload session not found. Start the upload again.")
+        if session.get("status") == "ready_for_brief":
+            return {"session_id": session_id}
+        if session.get("status") != "uploading":
+            raise HTTPException(409, "This upload batch is already being checked.")
+        if upload_reserved_bytes.get(session_id, 0) > 0:
+            raise HTTPException(409, "Wait for the current video upload to finish.")
+        if sum(item.get("size_bytes", 0) for item in session.get("files", [])) > settings.max_upload_batch_bytes:
+            raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
+        if not session.get("files"):
+            raise HTTPException(400, "Choose at least one video before continuing.")
+        session = store.update_upload_session(session_id, status="inspecting")
     paths = [store.resolve_data_path(item["stored_path"]) for item in session["files"]]
-    metadata = {}
-    for path in paths:
-        details = await asyncio.to_thread(inspect_video, path)
-        if details.get("inspection_error"):
-            raise HTTPException(400, "Could not inspect %s: %s" % (path.name, details["inspection_error"]))
-        metadata[str(path)] = details
-    total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
-    if total > 60 * 60:
-        raise HTTPException(400, "Raw footage must total 60 minutes or less for this workspace.")
-    store.update_upload_session(
-        session_id, inspection_metadata=metadata, total_duration_seconds=round(total, 3), status="ready_for_brief",
-    )
-    return {"session_id": session_id}
+    inspection_limit = asyncio.Semaphore(2)
+
+    async def inspect_one(path):
+        async with inspection_limit:
+            details = await asyncio.get_running_loop().run_in_executor(
+                inspection_executor, inspect_video, path,
+            )
+            return path, details
+
+    try:
+        inspected = await asyncio.gather(*(inspect_one(path) for path in paths))
+        metadata = {str(path): details for path, details in inspected}
+        failed_paths = [path for path, details in inspected if details.get("inspection_error")]
+        if failed_paths:
+            failed_path_names = {str(path) for path in failed_paths}
+            remaining_files = [
+                item for item in session["files"]
+                if str(store.resolve_data_path(item["stored_path"])) not in failed_path_names
+            ]
+            # Commit the retryable manifest first. A failed filesystem cleanup
+            # can leave only an unreferenced staging file, never a poisoned batch.
+            store.update_upload_session(
+                session_id, files=remaining_files, inspection_metadata={},
+                total_duration_seconds=0, status="uploading",
+            )
+            staging_root = (store.upload_session_dir(session_id) / "raw").resolve()
+            for path in failed_paths:
+                try:
+                    if staging_root in path.resolve().parents:
+                        path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            failed_count = len(failed_paths)
+            remaining_count = len(remaining_files)
+            if remaining_count:
+                message = (
+                    "PBJ removed %d video%s it could not read. Your other %d video%s "
+                    "remain%s saved; choose %s and try again."
+                    % (
+                        failed_count, "" if failed_count == 1 else "s",
+                        remaining_count, "" if remaining_count == 1 else "s",
+                        "s" if remaining_count == 1 else "",
+                        "a replacement" if failed_count == 1 else "replacements",
+                    )
+                )
+            else:
+                message = "PBJ removed the video%s it could not read. Choose %s and try again." % (
+                    "" if failed_count == 1 else "s",
+                    "a replacement" if failed_count == 1 else "replacements",
+                )
+            raise HTTPException(400, message)
+        total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
+        if total > 60 * 60:
+            raise HTTPException(400, "Raw footage must total 60 minutes or less for this workspace.")
+        store.update_upload_session(
+            session_id, inspection_metadata=metadata, total_duration_seconds=round(total, 3), status="ready_for_brief",
+        )
+        return {"session_id": session_id}
+    except BaseException:
+        store.update_upload_session(session_id, status="uploading")
+        raise
 
 
 @app.get("/projects/new/brief", response_class=HTMLResponse)
@@ -947,7 +1530,20 @@ async def new_project_brief_page(request: Request, session_id: str):
         session = store.upload_session(session_id)
     except (FileNotFoundError, OSError, ValueError):
         raise HTTPException(404, "Upload session not found")
-    if session.get("device_id") != device_id(request) or session.get("status") != "ready_for_brief":
+    if session.get("device_id") != device_id(request):
+        raise HTTPException(404, "Upload session not found")
+    if session.get("status") in {"promoting", "promoted"} and session.get("project_id"):
+        try:
+            project = store.project(session["project_id"])
+        except (FileNotFoundError, OSError, ValueError):
+            if session.get("status") == "promoting":
+                raise HTTPException(409, "This project is already being created.")
+        else:
+            if session.get("status") == "promoting" and not project.get("promotion_initialized"):
+                raise HTTPException(409, "This project is already being created.")
+            _finalize_upload_promotion(session_id, session["project_id"])
+            return RedirectResponse("/projects/%s" % session["project_id"], status_code=303)
+    if session.get("status") != "ready_for_brief":
         raise HTTPException(404, "Upload session not found")
     draft = request.session.get("project_draft") or {}
     return templates.TemplateResponse(request, "project_new_brief.html", {"upload_session": session, "draft": draft})
@@ -962,9 +1558,25 @@ async def finish_new_project(
         session = store.upload_session(session_id)
     except (FileNotFoundError, OSError, ValueError):
         raise HTTPException(404, "Upload session not found")
-    if session.get("device_id") != device_id(request) or session.get("status") != "ready_for_brief":
+    if session.get("device_id") != device_id(request):
         raise HTTPException(404, "Upload session not found")
-    if not PROVIDERS[session["provider"]]().readiness().configured:
+    if session.get("status") in {"promoting", "promoted"} and session.get("project_id"):
+        project_id = session["project_id"]
+        try:
+            project = store.project(project_id)
+        except (FileNotFoundError, OSError, ValueError):
+            if session.get("status") == "promoting":
+                raise HTTPException(409, "This project is already being created.")
+        else:
+            if session.get("status") == "promoting" and not project.get("promotion_initialized"):
+                raise HTTPException(409, "This project is already being created.")
+            _finalize_upload_promotion(session_id, project_id)
+            request.session.pop("project_draft", None)
+            request.session.pop("active_upload_session_id", None)
+            return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
+    if session.get("status") != "ready_for_brief":
+        raise HTTPException(409, "This project is already being created.")
+    if not readiness_for_provider(session.get("provider")).configured:
         raise HTTPException(400, "Video understanding is not configured. Open More, then Connections.")
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(400, "The editing engine is not configured. Open More, then Connections.")
@@ -987,29 +1599,90 @@ async def finish_new_project(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     selected_style_id = recipe_match["selected_recipe_id"]
+    with upload_manifest_lock:
+        session = store.upload_session(session_id)
+        if session.get("device_id") != device_id(request):
+            raise HTTPException(404, "Upload session not found")
+        if session.get("status") == "promoted" and session.get("project_id"):
+            return RedirectResponse(
+                "/projects/%s/production-progress" % session["project_id"], status_code=303,
+            )
+        if session.get("status") != "ready_for_brief":
+            raise HTTPException(409, "This project is already being created.")
+        project_id = new_id("project")
+        session = store.update_upload_session(
+            session_id, status="promoting", project_id=project_id,
+        )
     paths = [store.resolve_data_path(item["stored_path"]) for item in session["files"]]
     metadata = session.get("inspection_metadata", {})
-    project = store.create_project(
-        session["name"], selected_style_id, session["provider"], combined, target_seconds,
-        paths, metadata, intent, recipe_match, session.get("device_id"),
-    )
-    store.update_project(project["project_id"], initial_prompt=initial, additional_prompt=additional)
-    store.save_learning_signal(selected_style_id, {
-        "source_key": "raw:%s" % project["project_id"],
-        "type": "raw_footage_upload", "scope": "project_only",
-        "project_id": project["project_id"], "file_count": len(paths),
-        "device_id": project.get("device_id"),
-        "total_duration_seconds": session.get("total_duration_seconds", 0), "status": "context",
-        "instruction": "Project footage inventory; use only for compatibility and outcome analysis, not as a shared style rule.",
-    })
-    shutil.rmtree(str(store.upload_session_dir(session_id)), ignore_errors=True)
+    source_checksums = {
+        str(path): item.get("sha256", "") for path, item in zip(paths, session["files"])
+    }
+    source_original_names = {
+        str(path): item.get("original_name") or path.name
+        for path, item in zip(paths, session["files"])
+    }
+    try:
+        project = await asyncio.to_thread(
+            store.create_project,
+            session["name"], selected_style_id, session["provider"], combined, target_seconds,
+            paths, metadata,
+            intent=intent, recipe_match=recipe_match, device_id=session.get("device_id"),
+            source_checksums=source_checksums, reuse_staged_files=True,
+            project_id_override=project_id, source_original_names=source_original_names,
+        )
+    except Exception:
+        with upload_manifest_lock:
+            current = store.upload_session(session_id)
+            if current.get("status") == "promoting" and current.get("project_id") == project_id:
+                store.update_upload_session(
+                    session_id, status="ready_for_brief", project_id=None,
+                )
+        raise
+    try:
+        store.update_project(project["project_id"], initial_prompt=initial, additional_prompt=additional)
+        store.update_project(
+            project["project_id"], status="analysis_queued", last_error=None, active_revision=1,
+            active_task="Understanding your footage", active_started_at=utc_now(),
+            promotion_initialized=True,
+        )
+    except Exception:
+        store.delete_project(project["project_id"])
+        with upload_manifest_lock:
+            store.update_upload_session(
+                session_id, status="ready_for_brief", project_id=None,
+            )
+        raise
+    # Commit the durable pointer before attaching in-process work to the HTTP
+    # response. If that commit fails, the initialized project remains a safe,
+    # retryable source of truth and is never falsely shown as still running.
+    try:
+        with upload_manifest_lock:
+            _finalize_upload_promotion(session_id, project_id)
+    except Exception as exc:
+        store.update_project(
+            project_id, status="analysis_failed", active_revision=None,
+            active_task=None, **failure_fields(exc),
+        )
+        raise
+    try:
+        store.save_learning_signal(selected_style_id, {
+            "source_key": "raw:%s" % project["project_id"],
+            "type": "raw_footage_upload", "scope": "project_only",
+            "project_id": project["project_id"], "file_count": len(paths),
+            "device_id": project.get("device_id"),
+            "total_duration_seconds": session.get("total_duration_seconds", 0), "status": "context",
+            "instruction": "Project footage inventory; use only for compatibility and outcome analysis, not as a shared style rule.",
+        })
+        background_tasks.add_task(_run_complete_production, project["project_id"])
+    except Exception as exc:
+        store.update_project(
+            project_id, status="analysis_failed", active_revision=None,
+            active_task=None, **failure_fields(exc),
+        )
+        raise
     request.session.pop("project_draft", None)
     request.session.pop("active_upload_session_id", None)
-    store.update_project(
-        project["project_id"], status="analysis_queued", last_error=None, active_revision=1,
-        active_task="Understanding your footage", active_started_at=utc_now(),
-    )
-    background_tasks.add_task(_run_complete_production, project["project_id"])
     return RedirectResponse("/projects/%s/production-progress" % project["project_id"], status_code=303)
 
 
@@ -1019,7 +1692,7 @@ async def create_project(
     prompt: str = Form(""), target_seconds: int = Form(60),
     footage: List[UploadFile] = File(...),
 ):
-    provider = preferred_provider()
+    provider = analyzer_provider()
     target_seconds = target_seconds_from_prompt(prompt, target_seconds)
     if not 15 <= target_seconds <= 180:
         raise HTTPException(400, "Target duration must be between 15 and 180 seconds.")
@@ -1040,6 +1713,7 @@ async def create_project(
     style_id = recipe_match["selected_recipe_id"]
     temp_dir = upload_temp_dir("pbj-project-footage-")
     paths = []
+    source_checksums = {}
     batch_bytes = 0
     try:
         for index, upload in enumerate(footage, start=1):
@@ -1048,17 +1722,23 @@ async def create_project(
                 raise HTTPException(400, "Unsupported video file: %s" % upload.filename)
             target = temp_dir / ("%03d-%s" % (index, safe_name(upload.filename or "raw.mp4")))
             with target.open("wb") as output:
+                digest = hashlib.sha256()
                 while chunk := await upload.read(1024 * 1024):
                     batch_bytes += len(chunk)
                     if batch_bytes > settings.max_upload_batch_bytes:
                         raise HTTPException(413, "This batch is larger than 2 GB. Upload fewer videos at a time.")
-                    output.write(chunk)
+                    digest.update(chunk)
+                    await asyncio.to_thread(output.write, chunk)
             paths.append(target)
+            source_checksums[str(target)] = digest.hexdigest()
         metadata = {str(path): await asyncio.to_thread(inspect_video, path) for path in paths}
         total = sum(item.get("duration_seconds") or 0 for item in metadata.values())
         if total > 60 * 60:
             raise HTTPException(400, "Raw footage must total 60 minutes or less for this workspace.")
-        project = store.create_project(name, style_id, provider, prompt, target_seconds, paths, metadata, intent, recipe_match, device_id(request))
+        project = await asyncio.to_thread(
+            store.create_project, name, style_id, provider, prompt, target_seconds,
+            paths, metadata, intent, recipe_match, device_id(request), source_checksums, True,
+        )
         store.save_learning_signal(style_id, {
             "source_key": "raw:%s" % project["project_id"],
             "type": "raw_footage_upload", "scope": "project_only",
@@ -1082,14 +1762,18 @@ async def project_detail(request: Request, project_id: str):
     status = project.get("status")
     if status in ("export_queued", "exporting") and project.get("active_export_id"):
         return RedirectResponse("/projects/%s/exports/%s/progress" % (project_id, project["active_export_id"]), status_code=303)
-    if status in ("timeline_ready", "export_failed", "approved"):
+    if status in ("analysis_failed", "rough_cut_failed", "timeline_failed", "export_failed"):
+        destination = "production-progress"
+    elif status in ("timeline_ready", "approved"):
         destination = "ready"
-    elif status in ("timeline_queued", "planning_timeline", "preparing_proxies"):
+    elif status in ("timeline_queued", "planning_timeline"):
         destination = "production-progress"
     elif status in ("analysis_queued", "analyzing_footage"):
         destination = "production-progress"
     elif status in ("rough_cut_queued", "planning_rough_cut", "rendering_rough_cut"):
         destination = "production-progress"
+    elif status == "approval_running":
+        destination = "ready"
     elif project.get("latest_run"):
         destination = "review"
     elif status == "footage_uploaded":
@@ -1112,30 +1796,70 @@ async def delete_project(request: Request, project_id: str):
         raise HTTPException(404, "Project not found")
     if project.get("device_id") != device_id(request) and not (not project.get("device_id") and is_owner(request)):
         raise HTTPException(404, "Project not found")
-    for asset in [item for item in store.remote_assets() if item.get("owner_type") == "project" and item.get("owner_id") == project_id and item.get("status") != "deleted"]:
+    try:
+        project = store.transition_project(
+            project_id,
+            reject_statuses=ACTIVE_JOB_STATES,
+            status="project_deleting",
+            deletion_return_status=project.get("status") or "timeline_ready",
+            active_task="Deleting this project",
+            active_started_at=utc_now(),
+            last_error=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    cleanup_unavailable = []
+    try:
+        for asset in [item for item in store.remote_assets() if item.get("owner_type") == "project" and item.get("owner_id") == project_id and item.get("status") != "deleted"]:
+            deleted = await cleanup_remote_asset(
+                "project", project_id, asset.get("provider"), asset.get("id"),
+            )
+            if not deleted:
+                cleanup_unavailable.append(asset)
+        for asset in cleanup_unavailable:
+            store.record_remote_cleanup_tombstone(
+                "project", project_id, asset.get("provider"), asset.get("id"),
+                local_context="project_deletion",
+            )
+        store.delete_project(project_id)
+    except BaseException as exc:
         try:
-            await PROVIDERS[asset["provider"]]().delete_asset(asset["id"])
-            store.mark_remote_asset_deleted("project", project_id, asset["provider"], asset["id"])
-        except Exception as exc:
-            raise HTTPException(502, "The project was kept because its remote analysis copy could not be deleted: %s" % exc)
-    store.delete_project(project_id)
-    return RedirectResponse("/projects?message=deleted", status_code=303)
+            return_status = project.get("deletion_return_status") or "timeline_ready"
+            store.transition_project(
+                project_id, require_statuses={"project_deleting"},
+                status=return_status,
+                deletion_return_status=None,
+                active_task=None,
+                active_started_at=None,
+                last_error=(
+                    "The project was kept because remote analysis cleanup did not finish. "
+                    "Try deleting it again later."
+                ),
+                last_error_details={
+                    "type": "DeletionCleanupError",
+                    "code": "project_deletion_cleanup_failed",
+                    "message": "Remote cleanup did not finish, so local project files were kept.",
+                    "recorded_at": utc_now(),
+                },
+            )
+        except Exception:
+            pass
+        if not isinstance(exc, Exception):
+            raise
+        raise HTTPException(
+            502,
+            "The project was kept because its remote analysis copy could not be deleted. Try again later.",
+        )
+    suffix = "&remote_cleanup=unavailable" if cleanup_unavailable else ""
+    return RedirectResponse("/projects?message=deleted" + suffix, status_code=303)
 
 
 def project_context(request: Request, project_id: str):
     try:
         project = store.project(project_id)
-        style = store.style(project["style_id"])
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
-    latest_plan = None
-    latest_run = project.get("latest_run") or {}
-    if latest_run.get("plan_path"):
-        try:
-            latest_plan = store.read_json(store.resolve_data_path(latest_run["plan_path"]))
-        except (OSError, ValueError):
-            latest_plan = None
-    return {"request": request, "project": project, "style": style, "readiness": readiness(), "latest_plan": latest_plan}
+    return {"request": request, "project": project}
 
 
 @app.get("/projects/{project_id}/brief", response_class=HTMLResponse)
@@ -1152,7 +1876,9 @@ async def _run_complete_production(project_id: str) -> None:
             project_id, timeline["timeline_hash"],
             approve_on_success=False, approval_confirmation=False,
         )
-        await asyncio.to_thread(TimelineExportService(store).run, project_id, export["export_id"])
+        await asyncio.get_running_loop().run_in_executor(
+            render_executor, TimelineExportService(store).run, project_id, export["export_id"],
+        )
     except Exception as exc:
         current = store.project(project_id)
         if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
@@ -1171,7 +1897,9 @@ async def _run_revision(project_id: str, feedback: str) -> None:
             approve_on_success=False, approval_confirmation=False,
             revision_prompt=feedback,
         )
-        await asyncio.to_thread(TimelineExportService(store).run, project_id, export["export_id"])
+        await asyncio.get_running_loop().run_in_executor(
+            render_executor, TimelineExportService(store).run, project_id, export["export_id"],
+        )
     except Exception as exc:
         current = store.project(project_id)
         if current.get("status") not in {"analysis_failed", "timeline_failed", "export_failed"}:
@@ -1191,16 +1919,20 @@ async def save_project_brief(
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
     target_seconds = target_seconds_from_prompt(prompt)
-    if not PROVIDERS[project["provider"]]().readiness().configured:
+    if not readiness_for_provider(project.get("provider")).configured:
         raise HTTPException(400, "Video understanding is not configured. Open Settings to connect it.")
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(400, "The editing engine is not configured. Open Settings to connect it.")
-    store.update_project(
-        project_id, prompt=prompt.strip() or "Create the strongest coherent rough cut from the supplied footage.",
-        target_duration_seconds=target_seconds, status="analysis_queued", last_error=None,
-        active_revision=len(project.get("runs", [])) + 1, active_task="Understanding your footage",
-        active_started_at=utc_now(),
-    )
+    try:
+        store.transition_project(
+            project_id, reject_statuses=ACTIVE_JOB_STATES,
+            prompt=prompt.strip() or "Create the strongest coherent rough cut from the supplied footage.",
+            target_duration_seconds=target_seconds, status="analysis_queued", last_error=None,
+            active_revision=len(project.get("runs", [])) + 1, active_task="Understanding your footage",
+            active_started_at=utc_now(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     background_tasks.add_task(_run_complete_production, project_id)
     return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
 
@@ -1209,9 +1941,27 @@ async def save_project_brief(
 async def production_progress_page(request: Request, project_id: str):
     context = project_context(request, project_id)
     status = context["project"].get("status")
-    if status not in ("analysis_queued", "analyzing_footage", "footage_analyzed", "rough_cut_queued", "planning_rough_cut", "rendering_rough_cut", "analysis_failed", "rough_cut_failed", "timeline_queued", "planning_timeline", "preparing_proxies", "timeline_failed", "export_queued", "exporting", "export_failed"):
+    if status not in ("analysis_queued", "analyzing_footage", "footage_analyzed", "rough_cut_queued", "planning_rough_cut", "rendering_rough_cut", "analysis_failed", "rough_cut_failed", "timeline_queued", "planning_timeline", "timeline_failed", "export_queued", "exporting", "export_failed"):
         return RedirectResponse("/projects/%s" % project_id, status_code=303)
     return templates.TemplateResponse(request, "production_progress.html", context)
+
+
+def export_matches_current_timeline(project_id: str, export: dict) -> bool:
+    """Require approval to follow the exact current working-timeline lineage."""
+    if export.get("status") != "complete" or not export.get("timeline_path"):
+        return False
+    try:
+        current = TimelineStore(store).load(project_id)
+        snapshot = store.read_json(store.resolve_data_path(export["timeline_path"]))
+    except (FileNotFoundError, OSError, ValueError, KeyError, json.JSONDecodeError):
+        return False
+    current_hash = current.get("timeline_hash")
+    declared_hash = export.get("timeline_hash")
+    return bool(
+        current_hash
+        and snapshot.get("timeline_hash") == current_hash
+        and (not declared_hash or declared_hash == current_hash)
+    )
 
 
 @app.get("/projects/{project_id}/ready", response_class=HTMLResponse)
@@ -1223,9 +1973,12 @@ async def project_ready_page(request: Request, project_id: str):
         else:
             return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
     cuts = TimelineExportService(store).records(project_id, completed_only=True)
+    export = project.get("latest_export") or {}
     return templates.TemplateResponse(request, "project_ready.html", {
-        "project": project, "export": project.get("latest_export") or {}, "cuts": cuts,
+        "project": project, "export": export, "cuts": cuts,
         "cut_number": len(cuts),
+        "can_approve": export_matches_current_timeline(project_id, export)
+        and project.get("status") == "timeline_ready",
     })
 
 
@@ -1265,249 +2018,13 @@ async def project_cut_page(request: Request, project_id: str, export_id: str):
     })
 
 
-@app.get("/api/projects/{project_id}/timeline")
-async def get_project_timeline(project_id: str):
-    timelines = TimelineStore(store)
-    if not timelines.exists(project_id):
-        project = store.project(project_id)
-        if not project.get("latest_run"):
-            raise HTTPException(409, "The first timeline is not ready")
-        migrate_legacy_project(store, project_id)
-    return timelines.load(project_id)
-
-
-@app.post("/api/projects/{project_id}/timeline/transactions")
-async def apply_timeline_transaction(request: Request, project_id: str):
-    project = store.project(project_id)
-    if project.get("editor_read_only"):
-        raise HTTPException(409, "This timeline is locked while an export is running")
-    payload = await request.json()
-    required = ("base_revision", "base_timeline_hash", "transaction_id", "operations")
-    if any(key not in payload for key in required):
-        raise HTTPException(400, "Timeline transaction is incomplete")
-    payload["origin"] = "manual" if payload.get("origin") not in ("ai_proposal", "system") else payload["origin"]
+async def _run_timeline_export(project_id: str, export_id: str) -> None:
     try:
-        result = TimelineStore(store).transact(project_id, payload)
-        mark_working_timeline_changed(store, project_id, result["timeline"], str(payload.get("reason") or "Timeline edit"))
-        if not result.get("diff", {}).get("idempotent"):
-            store.save_learning_signal(project["style_id"], {
-                "source_key": "timeline-transaction:%s:%s" % (project_id, payload["transaction_id"]),
-                "type": "timeline_interaction", "scope": "project_only", "project_id": project_id,
-                "device_id": project.get("device_id"), "origin": payload["origin"],
-                "reason": str(payload.get("reason") or "Timeline edit"), "diff": result.get("diff"),
-                "status": "context", "instruction": "Retain as project audit context; only the latest successful approval is positive evidence.",
-            })
-        return result
-    except StaleTimelineError as exc:
-        return JSONResponse({"detail": str(exc), "current": exc.current}, status_code=409)
-    except (ValueError, KeyError) as exc:
-        raise HTTPException(422, str(exc))
-
-
-@app.post("/api/projects/{project_id}/timeline/undo")
-async def undo_timeline(project_id: str):
-    if store.project(project_id).get("editor_read_only"):
-        raise HTTPException(409, "This timeline is locked while an export is running")
-    result = TimelineStore(store).undo(project_id)
-    mark_working_timeline_changed(store, project_id, result["timeline"], "Undo timeline edit")
-    return result
-
-
-@app.post("/api/projects/{project_id}/timeline/redo")
-async def redo_timeline(project_id: str):
-    if store.project(project_id).get("editor_read_only"):
-        raise HTTPException(409, "This timeline is locked while an export is running")
-    result = TimelineStore(store).redo(project_id)
-    mark_working_timeline_changed(store, project_id, result["timeline"], "Redo timeline edit")
-    return result
-
-
-@app.post("/api/projects/{project_id}/timeline/proposals")
-async def create_timeline_proposal(request: Request, project_id: str):
-    payload = await request.json()
-    try:
-        begin_timeline_job(store, project_id, "proposal_running", "Preparing a suggested timeline change")
-        proposal = await TimelineProposalService(store).create(project_id, str(payload.get("instruction") or ""))
-        finish_timeline_job(store, project_id)
-        return proposal
-    except Exception as exc:
-        fail_timeline_job(store, project_id, exc)
-        if isinstance(exc, (ValueError, KeyError, json.JSONDecodeError)):
-            raise HTTPException(422, str(exc))
-        raise HTTPException(502, "PB&J could not prepare that suggestion. Your timeline was not changed.")
-
-
-@app.post("/api/projects/{project_id}/timeline/proposals/{proposal_id}/apply")
-async def apply_timeline_proposal(project_id: str, proposal_id: str):
-    try:
-        result = TimelineProposalService(store).apply(project_id, proposal_id)
-        mark_working_timeline_changed(store, project_id, result["timeline"], "Applied AI timeline proposal")
-        return result
-    except StaleTimelineError as exc:
-        return JSONResponse({"detail": str(exc), "current": exc.current}, status_code=409)
-    except (ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(422, str(exc))
-
-
-@app.post("/api/projects/{project_id}/timeline/proposals/{proposal_id}/reject")
-async def reject_timeline_proposal(project_id: str, proposal_id: str):
-    try:
-        return TimelineProposalService(store).reject(project_id, proposal_id)
-    except (ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(422, str(exc))
-
-
-def _proxy_manifest(project_id: str, asset_id: str, *, waveform: bool = False, thumbnails: bool = False):
-    project = store.project(project_id)
-    asset = next((item for item in project.get("raw_files", []) + project.get("audio_files", []) if item.get("file_id") == asset_id), None)
-    if not asset:
-        raise HTTPException(404, "Asset not found")
-    pipeline = ProxyPipeline(store)
-    return (pipeline.ensure_audio_asset(project_id, asset, include_waveform=waveform)
-            if asset_id.startswith("audio-") else
-            pipeline.ensure_asset(project_id, asset, include_waveform=waveform, include_thumbnails=thumbnails))
-
-
-@app.get("/api/projects/{project_id}/assets/{asset_id}/preview")
-async def project_asset_preview(project_id: str, asset_id: str):
-    manifest = _proxy_manifest(project_id, asset_id)
-    return FileResponse(store.resolve_data_path(manifest["preview_path"]), media_type="audio/mp4" if asset_id.startswith("audio-") else "video/mp4")
-
-
-@app.get("/api/projects/{project_id}/assets/{asset_id}/waveform")
-async def project_asset_waveform(project_id: str, asset_id: str):
-    manifest = _proxy_manifest(project_id, asset_id, waveform=True)
-    return store.read_json(store.resolve_data_path(manifest["waveform_path"]))
-
-
-@app.get("/api/projects/{project_id}/assets/{asset_id}/thumbnail/{index}")
-async def project_asset_thumbnail(project_id: str, asset_id: str, index: int):
-    manifest = _proxy_manifest(project_id, asset_id, thumbnails=True)
-    paths = manifest.get("thumbnail_paths", [])
-    if index < 0 or index >= len(paths):
-        raise HTTPException(404, "Thumbnail not found")
-    return FileResponse(store.resolve_data_path(paths[index]), media_type="image/jpeg")
-
-
-async def _analyze_editor_asset(project_id: str, asset_id: str) -> None:
-    try:
-        await ProjectAnalysisWorkflow(store).analyze(project_id, refresh=False)
-        timeline = TimelineStore(store).mark_asset_analyzed(project_id, asset_id)
-        mark_working_timeline_changed(store, project_id, timeline, "New editor asset analysis completed")
-        finish_timeline_job(store, project_id)
-    except Exception as exc:
-        # Editor uploads remain usable for manual timeline work even when their
-        # optional semantic analysis fails. Preserve the asset, expose the
-        # failure in timeline state, and avoid leaving the project stuck in an
-        # analysis status that blocks later editing or export.
-        try:
-            timeline = TimelineStore(store).mark_asset_analysis_failed(project_id, asset_id, str(exc))
-            mark_working_timeline_changed(store, project_id, timeline, "Optional editor asset analysis failed")
-            fail_timeline_job(store, project_id, exc)
-        except Exception:
-            return
-
-
-@app.post("/api/projects/{project_id}/assets")
-async def upload_editor_asset(
-    project_id: str, background_tasks: BackgroundTasks, media: UploadFile = File(...),
-    analyze_for_ai: bool = Form(False), permission_confirmed: bool = Form(False),
-):
-    project = store.project(project_id)
-    if project.get("status") in ACTIVE_JOB_STATES or project.get("editor_read_only"):
-        raise HTTPException(409, "Wait for the current project task to finish before adding media")
-    suffix = Path(media.filename or "").suffix.lower()
-    audio_extensions = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".aiff", ".ogg"}
-    kind = "video" if suffix in VIDEO_EXTENSIONS else "audio" if suffix in audio_extensions else None
-    if not kind:
-        raise HTTPException(400, "Choose a supported video or audio file")
-    if kind == "audio" and not permission_confirmed:
-        raise HTTPException(400, "Confirm you have permission to use this audio")
-    collection = "raw_files" if kind == "video" else "audio_files"
-    existing = project.get(collection, [])
-    prefix = "raw" if kind == "video" else "audio"
-    asset_id = "%s-%03d" % (prefix, len(existing) + 1)
-    folder = store.project_dir(project_id) / ("raw" if kind == "video" else "audio")
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / (asset_id + "-" + safe_name(media.filename or (asset_id + suffix)))
-    written = 0
-    try:
-        with target.open("wb") as output:
-            while chunk := await media.read(1024 * 1024):
-                written += len(chunk)
-                if written > settings.max_upload_batch_bytes:
-                    raise HTTPException(413, "This upload is larger than the 2 GB batch limit")
-                output.write(chunk)
-    except Exception:
-        target.unlink(missing_ok=True)
-        raise
-    metadata = await asyncio.to_thread(inspect_video, target)
-    if metadata.get("inspection_error"):
-        target.unlink(missing_ok=True)
-        raise HTTPException(400, "PB&J could not inspect this media file")
-    record = {
-        "file_id": asset_id, "original_name": media.filename or target.name,
-        "stored_path": str(target.relative_to(store.data_dir)), "sha256": sha256(target),
-        "metadata": metadata, "analysis_status": "pending" if (kind == "video" and analyze_for_ai) else "not_requested",
-        "permission_confirmed": bool(permission_confirmed), "uploaded_in_editor": True,
-    }
-    store.update_project(project_id, **{collection: existing + [record]})
-    asset = {
-        "asset_id": asset_id, "kind": kind, "original_name": record["original_name"],
-        "stored_path": record["stored_path"], "sha256": record["sha256"],
-        "duration_us": us_from_seconds(metadata.get("duration_seconds") or 0),
-        "has_audio": bool(metadata.get("has_audio")), "width": metadata.get("width"), "height": metadata.get("height"),
-        "rotation": metadata.get("rotation", 0), "analyzed": False,
-        "analysis_status": record["analysis_status"], "permission_scope": "project_private",
-        "media_metadata": metadata,
-    }
-    timeline = TimelineStore(store).register_asset(project_id, asset)
-    mark_working_timeline_changed(store, project_id, timeline, "Added project media")
-    pipeline = ProxyPipeline(store)
-    proxy = await asyncio.to_thread(pipeline.ensure_asset if kind == "video" else pipeline.ensure_audio_asset, project_id, record)
-    store.save_learning_signal(project["style_id"], {
-        "source_key": "editor-upload:%s:%s" % (project_id, asset_id), "type": "editor_media_upload",
-        "scope": "project_only", "project_id": project_id, "device_id": project.get("device_id"),
-        "asset_id": asset_id, "media_kind": kind, "analysis_requested": bool(analyze_for_ai),
-        "status": "context", "instruction": "User added project media from the timeline editor.",
-    })
-    if kind == "video" and analyze_for_ai:
-        begin_timeline_job(store, project_id, "analyzing_footage", "Analyzing the newly added video")
-        background_tasks.add_task(_analyze_editor_asset, project_id, asset_id)
-    return {"asset": asset, "timeline": timeline, "proxy": proxy, "analysis_requested": bool(analyze_for_ai)}
-
-
-def _run_timeline_export(project_id: str, export_id: str) -> None:
-    try:
-        TimelineExportService(store).run(project_id, export_id)
+        await asyncio.get_running_loop().run_in_executor(
+            render_executor, TimelineExportService(store).run, project_id, export_id,
+        )
     except Exception:
         return
-
-
-@app.post("/api/projects/{project_id}/exports")
-async def create_timeline_export(request: Request, project_id: str, background_tasks: BackgroundTasks):
-    payload = await request.json()
-    try:
-        record = TimelineExportService(store).create(
-            project_id, str(payload.get("timeline_hash") or ""),
-            approve_on_success=bool(payload.get("approve_on_success")),
-            approval_confirmation=bool(payload.get("approval_confirmation")),
-        )
-    except ValueError as exc:
-        raise HTTPException(409, str(exc))
-    background_tasks.add_task(_run_timeline_export, project_id, record["export_id"])
-    return {
-        "export_id": record["export_id"],
-        "progress_url": "/projects/%s/exports/%s/progress" % (project_id, record["export_id"]),
-    }
-
-
-@app.get("/api/projects/{project_id}/exports/{export_id}")
-async def get_timeline_export(project_id: str, export_id: str):
-    try:
-        return TimelineExportService(store).record(project_id, export_id)
-    except (FileNotFoundError, OSError, ValueError):
-        raise HTTPException(404, "Export not found")
 
 
 @app.get("/projects/{project_id}/exports/{export_id}/progress", response_class=HTMLResponse)
@@ -1662,21 +2179,82 @@ async def project_approval_page(request: Request, project_id: str):
     return RedirectResponse("/projects/%s/ready" % project_id, status_code=303)
 
 
+def _approve_latest_project_export(project_id: str):
+    """Make an explicit approval idempotent within the one-process demo."""
+    with approval_lock:
+        project = store.project(project_id)
+        if project.get("status") in ACTIVE_JOB_STATES:
+            raise ValueError("Wait for the current project task to finish before approving a cut")
+        export = project.get("latest_export") or {}
+        if export.get("status") != "complete":
+            raise ValueError("A completed rough cut is required before approval")
+        if not export_matches_current_timeline(project_id, export):
+            raise ValueError("This cut is not the current saved edit. Review or finish the latest edit before approving.")
+        try:
+            receipt = store.read_json(store.resolve_data_path(export["render_receipt_path"]))
+        except (FileNotFoundError, OSError, ValueError, KeyError, json.JSONDecodeError):
+            raise ValueError("This cut is missing its completed verification receipt")
+        if (receipt.get("verification") or {}).get("passed") is not True:
+            raise ValueError("This cut did not pass required export verification")
+        existing = project.get("final_approval") or {}
+        if existing.get("approved") and existing.get("export_id") == export.get("export_id"):
+            return existing
+        begin_timeline_job(store, project_id, "approval_running", "Saving your approved cut")
+        try:
+            # Re-read after the atomic claim so a concurrent revision or legacy
+            # mutation cannot approve an export that stopped being current.
+            project = store.project(project_id)
+            claimed_export = project.get("latest_export") or {}
+            if claimed_export.get("export_id") != export.get("export_id"):
+                raise ValueError("The latest cut changed; refresh before approving")
+            if not export_matches_current_timeline(project_id, claimed_export):
+                raise ValueError("This cut is not the current saved edit. Review or finish the latest edit before approving.")
+            timeline = store.read_json(store.resolve_data_path(claimed_export["timeline_path"]))
+            approval = approve_timeline_export(
+                store, project_id, claimed_export, timeline, receipt,
+            )
+            claimed_export["approval"] = approval
+            export_path = (
+                store.project_dir(project_id) / "exports" /
+                claimed_export["export_id"] / "export.json"
+            )
+            store.write_json(export_path, claimed_export)
+            store.update_project(
+                project_id,
+                status="approved",
+                latest_export=claimed_export,
+                active_task=None,
+                active_started_at=None,
+                job_return_status=None,
+            )
+            return approval
+        except Exception as exc:
+            # The approval helper writes final_approval only after its durable
+            # evidence. If that marker exists, preserve the completed approval
+            # even if the final convenience pointer write was interrupted.
+            current = store.project(project_id)
+            saved = current.get("final_approval") or {}
+            if saved.get("approved") and saved.get("export_id") == export.get("export_id"):
+                store.update_project(
+                    project_id,
+                    status="approved",
+                    active_task=None,
+                    active_started_at=None,
+                    job_return_status=None,
+                )
+                return saved
+            fail_timeline_job(store, project_id, exc)
+            raise
+
+
 @app.post("/projects/{project_id}/approve")
 async def approve_project_run(project_id: str, confirmation: str = Form("")):
     if confirmation != "approve":
         raise HTTPException(400, "Confirm that this finished cut is approved")
-    project = store.project(project_id)
-    export = project.get("latest_export") or {}
-    if export.get("status") != "complete":
-        raise HTTPException(409, "A completed rough cut is required before approval")
-    timeline = store.read_json(store.resolve_data_path(export["timeline_path"]))
-    receipt = store.read_json(store.resolve_data_path(export["render_receipt_path"]))
-    approval = approve_timeline_export(store, project_id, export, timeline, receipt)
-    export["approval"] = approval
-    export_path = store.project_dir(project_id) / "exports" / export["export_id"] / "export.json"
-    store.write_json(export_path, export)
-    store.update_project(project_id, status="approved", latest_export=export)
+    try:
+        await asyncio.to_thread(_approve_latest_project_export, project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     return RedirectResponse("/projects/%s/approval" % project_id, status_code=303)
 
 
@@ -1692,6 +2270,22 @@ async def retry_failed_rough_cut(project_id: str, background_tasks: BackgroundTa
         project = store.project(project_id)
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
+    if project.get("status") == "analysis_failed":
+        if not readiness_for_provider(project.get("provider")).configured:
+            raise HTTPException(
+                400,
+                "This saved project uses video understanding that is no longer available. Create a new project to analyze with the current provider.",
+            )
+        try:
+            store.transition_project(
+                project_id, require_statuses={"analysis_failed"},
+                status="analysis_queued", last_error=None, active_revision=1,
+                active_task="Retrying footage analysis", active_started_at=utc_now(),
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        background_tasks.add_task(_run_complete_production, project_id)
+        return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
     if project.get("status") in {"timeline_ready", "export_failed"} and TimelineStore(store).exists(project_id):
         timeline = TimelineStore(store).load(project_id)
         latest_run = project.get("latest_run") or {}
@@ -1711,8 +2305,18 @@ async def retry_failed_rough_cut(project_id: str, background_tasks: BackgroundTa
         return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
     if project.get("status") != "timeline_failed" or not project.get("content_map"):
         raise HTTPException(400, "Only failed timeline preparation can be retried here")
-    store.update_project(project_id, status="timeline_queued", last_error=None, active_task="Rebuilding the timeline from saved analysis", active_started_at=utc_now())
-    background_tasks.add_task(_run_revision, project_id, "Rebuild the cut after the previous preparation failure.")
+    try:
+        store.transition_project(
+            project_id, require_statuses={"timeline_failed"}, status="timeline_queued",
+            last_error=None, active_task="Rebuilding the timeline from saved analysis",
+            active_started_at=utc_now(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    revision_feedback = project.get("pending_revision_feedback")
+    if not isinstance(revision_feedback, str):
+        revision_feedback = ""
+    background_tasks.add_task(_run_revision, project_id, revision_feedback)
     return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
 
 
@@ -1728,11 +2332,15 @@ async def revise_rough_cut(project_id: str, background_tasks: BackgroundTasks, f
     if focus:
         combined += "\nFocus areas: " + ", ".join(focus)
     history = project.get("revision_feedback", []) + [{"feedback": combined, "requested_at": utc_now()}]
-    store.update_project(
-        project_id, status="timeline_queued", last_error=None,
-        active_task="Replanning from your feedback", active_started_at=utc_now(),
-        revision_feedback=history, pending_revision_feedback=combined,
-    )
+    try:
+        store.transition_project(
+            project_id, reject_statuses=ACTIVE_JOB_STATES,
+            status="timeline_queued", last_error=None,
+            active_task="Replanning from your feedback", active_started_at=utc_now(),
+            revision_feedback=history, pending_revision_feedback=combined,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     background_tasks.add_task(_run_revision, project_id, combined)
     return RedirectResponse("/projects/%s/production-progress" % project_id, status_code=303)
 
@@ -1767,8 +2375,3 @@ async def api_contracts():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-
-@app.get("/offline", response_class=HTMLResponse)
-async def offline_page(request: Request):
-    return templates.TemplateResponse(request, "offline.html", {})

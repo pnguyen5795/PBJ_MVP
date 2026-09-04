@@ -67,7 +67,7 @@ operations. Do not change a timeline when asked only to propose a revision.
             reasoning_effort=settings.agent_reasoning_effort,
             instructions=(COMMON_BOUNDARIES + """
 
-You repair an invalid proposed edit plan or typed timeline transaction after
+You repair an invalid proposed edit plan after
 deterministic PB&J validation has reported an exact error. Make the smallest
 changes necessary to satisfy the requested output schema, real source-duration
 boundaries, continuity, linked original audio, and requested target duration.
@@ -91,8 +91,8 @@ platform rules, source-backed recipe knowledge, user preferences, and project-on
 instructions separate. Preserve provenance, counterexamples, uncertainty, recipe
 versions, and permission scope. One project is never enough to establish a shared
 rule. You may propose reversible learning candidates, but you may not promote,
-publish, overwrite, or approve a recipe. Rejected proposals are negative/context
-evidence; only a successfully approved outcome is positive project evidence.
+publish, overwrite, or approve a recipe. Revision requests remain contextual;
+only a successfully approved outcome is positive project evidence.
 """).strip(),
         ),
     }

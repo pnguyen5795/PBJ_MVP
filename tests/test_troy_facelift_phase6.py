@@ -17,21 +17,25 @@ class TroyFaceliftPhase6Tests(unittest.TestCase):
         self.assertIn(short_landscape, legacy_mobile)
         self.assertIn("(max-width: 900px) and (max-height: 500px)", foundation)
 
-    def test_pwa_allows_rotation_and_versioned_facelift_assets(self):
+    def test_installable_shell_removes_retired_offline_cache(self):
         manifest = json.loads(self.read("app/static/manifest.webmanifest"))
         self.assertEqual(manifest["orientation"], "any")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual(manifest["start_url"], "/")
         base = self.read("app/templates/base.html")
         access = self.read("app/templates/access.html")
-        worker = self.read("app/static/service-worker.js")
-        for asset in ("mobile-v2.css", "troy-foundation.css", "troy-screens.css"):
-            self.assertIn(f"/static/{asset}?v=21", worker)
         self.assertIn("/ui.css?v=22", base)
         self.assertIn("/ui.css?v=22", access)
-        self.assertIn("getRegistrations", base)
-        self.assertIn("getRegistrations", access)
-        self.assertIn('const CACHE = "pbj-shell-v21"', worker)
-        self.assertIn('caches.match("/offline")', worker)
-        self.assertIn("if (!response.ok)", worker)
+        self.assertIn('rel="manifest" href="/manifest.webmanifest"', base)
+        self.assertIn('rel="manifest" href="/manifest.webmanifest"', access)
+        for template in (base, access):
+            self.assertIn("navigator.serviceWorker.getRegistrations()", template)
+            self.assertIn("item.unregister()", template)
+            self.assertIn("key.startsWith('pbj-shell-')", template)
+            self.assertIn("caches.delete(key)", template)
+            self.assertNotIn("serviceWorker.register", template)
+        self.assertFalse((ROOT / "app" / "static" / "service-worker.js").exists())
+        self.assertFalse((ROOT / "app" / "templates" / "offline.html").exists())
 
     def test_mobile_shell_keeps_content_inside_gutters_and_safe_areas(self):
         screens = self.read("app/static/troy-screens.css")

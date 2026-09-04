@@ -33,8 +33,9 @@
 <script>
 document.addEventListener('submit',function(e){const form=e.target;if(!form.matches('form')||form.dataset.noLoading==='true')return;const button=form.querySelector('button[type="submit"]');if(!button||button.disabled)return;button.dataset.originalText=button.textContent;button.disabled=true;button.classList.add('is-loading');button.innerHTML='<span class="button-spinner"></span> Working…';});
 document.querySelectorAll('[data-elapsed-timer]').forEach(function(timer){const output=timer.querySelector('strong');const parsed=Date.parse(timer.dataset.startedAt||'');const started=Number.isFinite(parsed)?parsed:Date.now();function update(){const total=Math.max(0,Math.floor((Date.now()-started)/1000));const hours=Math.floor(total/3600);const minutes=Math.floor((total%3600)/60);const seconds=total%60;output.textContent=(hours?String(hours).padStart(2,'0')+':':'')+String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0')}update();setInterval(update,1000)});
-if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(items=>items.forEach(item=>item.unregister())).catch(()=>{});}
-if('caches' in window){caches.keys().then(keys=>keys.filter(key=>key.startsWith('pbj-shell-')).forEach(key=>caches.delete(key))).catch(()=>{});}
+// Migration cleanup only: remove the retired offline worker and its private shell cache.
+if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(items=>Promise.all(items.map(item=>item.unregister()))).catch(()=>{});}
+if('caches' in window){caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('pbj-shell-')).map(key=>caches.delete(key)))).catch(()=>{});}
 window.pbjSafeRefresh=function(delay){
   let wait=Math.max(1000,Number(delay)||3000);
   async function refresh(){

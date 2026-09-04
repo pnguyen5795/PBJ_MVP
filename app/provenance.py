@@ -5,13 +5,9 @@ diffing, lineage, and receipts; none of these records grant shell access or
 expand the renderer's allowlisted operations.
 """
 
-from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import json
-import subprocess
-
-from .storage import sha256, utc_now
 
 
 def canonical_json(value: Any) -> str:
@@ -114,32 +110,4 @@ def diff_plans(previous: Optional[Dict[str, Any]], current: Dict[str, Any]) -> D
         "change_count": len([item for item in changes if item["type"] != "retained"]),
         "summary": {kind: len([item for item in changes if item["type"] == kind]) for kind in ("added", "removed", "modified", "retained")},
         "changes": changes,
-    }
-
-
-def _ffmpeg_version() -> Optional[str]:
-    try:
-        result = subprocess.run(["ffmpeg", "-version"], check=True, capture_output=True, text=True, timeout=10)
-        return result.stdout.splitlines()[0] if result.stdout else None
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-def render_receipt(project: Dict[str, Any], plan: Dict[str, Any], output_path: Path,
-                   render_result: Dict[str, Any], command: Optional[Iterable[str]] = None) -> Dict[str, Any]:
-    sources = {item.get("file_id"): item for item in project.get("raw_files") or []}
-    used_ids = sorted({item.get("source_file_id") for layer in ("video_segments", "audio_segments") for item in plan.get(layer) or [] if item.get("source_file_id")})
-    return {
-        "schema_version": "1.0",
-        "created_at": utc_now(),
-        "project_id": project.get("project_id"),
-        "recipe_id": project.get("style_id"),
-        "recipe_version": project.get("recipe_version"),
-        "plan_hash": canonical_sha256(plan),
-        "compiled_command_hash": canonical_sha256(list(command)) if command is not None else None,
-        "source_inputs": [{"file_id": file_id, "sha256": sources.get(file_id, {}).get("sha256"), "stored_path": sources.get(file_id, {}).get("stored_path")} for file_id in used_ids],
-        "renderer": {"name": "pbj-ffmpeg", "contract_version": "1.0", "ffmpeg_version": _ffmpeg_version()},
-        "media_policy": {"supplied_media_only": True, "original_recorded_audio_only": True, "generated_media": False},
-        "verification": render_result.get("verification"),
-        "output": {"sha256": sha256(output_path), "size_bytes": output_path.stat().st_size},
     }

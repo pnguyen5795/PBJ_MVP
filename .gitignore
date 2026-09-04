@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .venv*/
 .pnpm-store/
 __pycache__/

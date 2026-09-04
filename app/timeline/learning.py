@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 from datetime import datetime
 
-from ..storage import JsonStore, new_id, utc_now
+from ..storage import JsonStore, new_id
 from ..learning_agent import LearningAssessmentService
 from .diff import timeline_diff
 from .storage import TimelineStore

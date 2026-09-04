@@ -12,7 +12,7 @@ PB&J is an iPhone-first AI rough-cut application. A user describes an edit, opti
 6. FFmpeg renders the validated timeline into a verified H.264/AAC MP4.
 7. The user watches the cut, approves it, or requests a natural-language revision.
 
-PBJ contains no OpenReel integration and no manual timeline editor. Recipes and provider machinery remain invisible in the normal user journey.
+PBJ contains no OpenReel integration and no manual timeline editor. Twelve Labs is its sole media analyzer; recipes and provider machinery remain invisible in the normal user journey.
 
 ## Start PBJ
 
@@ -44,13 +44,17 @@ Copy `.env.example` to `.env` if the launcher has not already done so. Configure
 - `PBJ_OWNER_CODE`
 - `PBJ_SESSION_SECRET`
 
-Local `.env` and project data are ignored by Git. Do not commit API keys, access codes, uploaded media, generated proxies, analyses, or rendered projects.
+Local `.env` and project data are ignored by Git. Do not commit API keys, access codes, uploaded media, analyses, or rendered projects.
 
 ## Private hosted demo
 
-The `codex/hosted-demo` branch includes a Render Blueprint and Docker image for one private demonstration workspace. Render runs PBJ and FFmpeg independently of the development laptop. The web service uses 1 CPU and 2 GB RAM, while data remains ephemeral under `/tmp/pbj-data`: use disposable sample footage because uploads, analyses, and completed cuts can disappear after a restart or deploy. Hosted FFprobe and FFmpeg work run off the web event loop. FFmpeg preserves the normal CRF 20/medium quality profile while bounding decoder, filter-graph, and encoder concurrency so multi-clip phone footage cannot create an abrupt memory spike. The automatic rough-cut path still skips editor proxy generation because it renders directly from the original project media.
+The `codex/hosted-demo` branch includes a Render Blueprint and Docker image for one private demonstration workspace. Render runs PBJ and FFmpeg independently of the development laptop. The web service uses 1 CPU and 2 GB RAM, while data remains ephemeral under `/tmp/pbj-data`: use disposable sample footage because uploads, analyses, and completed cuts can disappear after a restart or deploy. Hosted FFprobe and FFmpeg work run off the web event loop. FFmpeg preserves the normal CRF 20/medium quality profile while bounding decoder, filter-graph, and encoder concurrency. A controlled 15-video/60-second cut completed in 325.265 seconds without a restart, but it reached 100% CPU and 89.888% of the memory limit; treat that as the current disposable-demo envelope, not spare capacity for larger jobs. The worktree gives FFmpeg a measured hang deadline of at least 600 seconds, scaling at 9x output duration, and terminates/reaps a timed-out child. The retired editor-proxy pipeline is removed; the automatic rough-cut path renders directly from original project media.
 
 This mode is deliberately access-code protected. Every authorized browser enters the same workspace, so it is appropriate for owner-controlled smoke testing but not for public or multi-user release. The paid instance remains a single web process, and unusually complex or concurrent jobs may still require more compute or a dedicated worker. Attach persistent storage before retaining real projects. Durable workers and object storage remain future private-beta work.
+
+Hosted startup fails unless an access code, a unique session secret of at least 32 bytes, and HTTPS-only cookies are configured; Render's platform marker keeps these checks fail-closed if the application mode flag drifts. Access and owner codes are exact, case-sensitive, and bounded to 256 UTF-8 bytes; their public form bodies are capped at 1 KiB before parsing. Repeated failures are throttled in the one web process, state-changing browser requests must be same-origin, security headers protect dynamic and unhandled-error responses, and **More → Log out** clears the current authorization. Starting a distinct project is a protected POST, so merely opening a link cannot discard an active draft. Cookie-held project drafts are bounded to keep accepted signed cookies below 4 KiB, including Unicode input. Sessions remain stateless in this checkpoint: rotating `PBJ_SESSION_SECRET` signs out every browser, while immediate per-session server-side revocation remains part of future account infrastructure. The Home Screen shell is network-only and intentionally has no service-worker/offline cache; connected pages remove the retired worker and its legacy `pbj-shell-*` cache from older installations.
+
+The Blueprint waits for the repository's full test check before auto-deploying and requests Render's maximum 300-second shutdown window. That window is extra drain time, not durable job handling; a restart can still interrupt analysis or rendering and erase `/tmp` state.
 
 PBJ records privacy-safe client diagnostics for upload progress, retries, connectivity, app visibility, and browser failures. Sanitized events are written to Render logs and to a rotating local JSONL file; an owner can download the current file from **More → Download Diagnostics**. These records deliberately exclude filenames, media, prompts, access codes, secrets, and raw exception messages. The downloadable copy remains ephemeral on the hosted service, while the structured Render log provides evidence across application restarts subject to Render's log-retention window.
 

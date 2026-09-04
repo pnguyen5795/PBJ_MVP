@@ -113,9 +113,13 @@ APPROVAL EVIDENCE:
                 "learning", "approval_learning_assessment", LEARNING_ASSESSMENT_SCHEMA, prompt,
             )
             record = {**base, "status": "complete", "assessment": result, "agent": metadata}
-        except Exception as exc:
+        except Exception:
             # Export approval and deterministic evidence remain valid even when
             # the advisory model assessment is temporarily unavailable.
-            record = {**base, "status": "failed", "error": str(exc)}
+            record = {
+                **base, "status": "failed",
+                "failure_code": "learning_assessment_unavailable",
+                "error": "The advisory learning assessment was unavailable. Approval evidence remains valid.",
+            }
         self.store.write_json(path, record)
         return {**record, "path": str(path.relative_to(self.store.data_dir))}

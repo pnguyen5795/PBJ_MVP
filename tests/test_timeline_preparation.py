@@ -16,13 +16,6 @@ class FakePlanner:
         }
 
 
-class FakeProxyPipeline:
-    def __init__(self): self.calls = 0
-    def ensure_project(self, project):
-        self.calls += 1
-        return {"assets": [{"asset_id": "raw-001", "combined_timeline_render": False}], "cache_hits": 0}
-
-
 class FakeRepairPlanner(FakePlanner):
     def __init__(self): self.repair_calls = []
 
@@ -55,11 +48,10 @@ class TimelinePreparationTests(IsolatedAsyncioTestCase):
             raw = {"file_id": "raw-001", "original_name": "one.mov", "stored_path": "projects/%s/raw/one.mov" % project_id, "sha256": "a" * 64, "analysis_status": "complete", "metadata": {"duration_seconds": 5, "has_audio": True}}
             project = {"project_id": project_id, "style_id": style_id, "recipe_version": "1.0.0", "raw_files": [raw], "provider": "pegasus", "prompt": "Two second edit", "target_duration_seconds": 2, "content_map": {"files": []}, "status": "footage_analyzed"}
             store.write_json(root / "manifest.json", project)
-            proxies = FakeProxyPipeline()
-            completed = await TimelinePreparationWorkflow(store, decision_engine=FakePlanner(), proxy_pipeline=proxies).create(project_id)
+            completed = await TimelinePreparationWorkflow(store, decision_engine=FakePlanner()).create(project_id)
             self.assertEqual(completed["status"], "timeline_ready")
-            self.assertEqual(proxies.calls, 0)
-            self.assertTrue(completed["proxy_report"]["skipped"])
+            self.assertNotIn("proxy_report", completed)
+            self.assertFalse((root / "proxies").exists())
             timeline = store.read_json(root / "timeline" / "current.json")
             self.assertTrue(timeline["tracks"][0]["clips"])
             self.assertFalse((root / "runs").exists())
@@ -75,7 +67,7 @@ class TimelinePreparationTests(IsolatedAsyncioTestCase):
             project = {"project_id": project_id, "style_id": style_id, "recipe_version": "1.0.0", "raw_files": [raw], "provider": "pegasus", "prompt": "Two second edit", "target_duration_seconds": 2, "content_map": {"files": []}, "status": "footage_analyzed"}
             store.write_json(root / "manifest.json", project)
             planner = FakeRepairPlanner()
-            completed = await TimelinePreparationWorkflow(store, decision_engine=planner, proxy_pipeline=FakeProxyPipeline()).create(project_id)
+            completed = await TimelinePreparationWorkflow(store, decision_engine=planner).create(project_id)
             self.assertEqual(completed["status"], "timeline_ready")
             self.assertEqual(len(planner.repair_calls), 1)
             plan = store.read_json(root / "timeline" / "initial_edit_plan.json")

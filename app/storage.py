@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import shutil
+from threading import RLock
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
@@ -38,6 +39,10 @@ def sha256(path: Path) -> str:
 
 class JsonStore:
     def __init__(self, data_dir: Path):
+        # The hosted demo deliberately has one process, but request handlers and
+        # background work use multiple threads. Serialize short JSON mutations
+        # so read-modify-write updates cannot overwrite one another.
+        self._mutation_lock = RLock()
         self.data_dir = data_dir
         self.assets_dir = data_dir / "assets"
         self.reference_assets_dir = self.assets_dir / "references"
@@ -50,6 +55,7 @@ class JsonStore:
         self.cache_dir = data_dir / "cache"
         self.archive_dir = data_dir / "archive"
         self.deleted_styles_dir = self.archive_dir / "recipes"
+        self.remote_cleanup_dir = self.archive_dir / "remote_cleanup"
         self.approved_examples_dir = data_dir / "approved_examples"
         self.user_preferences_dir = data_dir / "user_preferences"
         self.learning_suggestions_dir = data_dir / "learning_suggestions"
@@ -61,6 +67,7 @@ class JsonStore:
             self.upload_sessions_dir,
             self.cache_dir,
             self.deleted_styles_dir,
+            self.remote_cleanup_dir,
             self.approved_examples_dir,
             self.user_preferences_dir,
             self.learning_suggestions_dir,
@@ -70,20 +77,27 @@ class JsonStore:
 
     def append_client_diagnostic(self, event: Dict[str, Any]) -> None:
         """Append a bounded structured event; callers must supply allowlisted fields only."""
-        path = self.diagnostics_dir / "client-events.jsonl"
-        if path.exists() and path.stat().st_size >= 5 * 1024 * 1024:
-            rotated = self.diagnostics_dir / "client-events.previous.jsonl"
-            rotated.unlink(missing_ok=True)
-            path.replace(rotated)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n")
+        with self._mutation_lock:
+            path = self.diagnostics_dir / "client-events.jsonl"
+            if path.exists() and path.stat().st_size >= 5 * 1024 * 1024:
+                rotated = self.diagnostics_dir / "client-events.previous.jsonl"
+                rotated.unlink(missing_ok=True)
+                path.replace(rotated)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n")
 
-    @staticmethod
-    def write_json(path: Path, value: Dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-        temporary.replace(path)
+    def write_json(self, path: Path, value: Dict[str, Any]) -> None:
+        with self._mutation_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(".%s.%s.tmp" % (path.name, secrets.token_hex(6)))
+            try:
+                temporary.write_text(
+                    json.dumps(value, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     @staticmethod
     def read_json(path: Path) -> Dict[str, Any]:
@@ -165,15 +179,16 @@ class JsonStore:
 
     def save_learning_signal(self, style_id: str, signal: Dict[str, Any]) -> Dict[str, Any]:
         """Persist every useful reference, revision, and approval lesson with scope."""
-        source_key = signal.get("source_key")
-        if source_key:
-            existing = next((item for item in self.list_learning_signals(style_id) if item.get("source_key") == source_key), None)
-            if existing:
-                return existing
-        record = {"schema_version": "1.0", "signal_id": new_id("signal"), "recorded_at": utc_now(), **copy.deepcopy(signal)}
-        self.write_json(self.style_dir(style_id) / "learning" / "signals" / (record["signal_id"] + ".json"), record)
-        self.rebuild_learning_state(style_id)
-        return record
+        with self._mutation_lock:
+            source_key = signal.get("source_key")
+            if source_key:
+                existing = next((item for item in self.list_learning_signals(style_id) if item.get("source_key") == source_key), None)
+                if existing:
+                    return existing
+            record = {"schema_version": "1.0", "signal_id": new_id("signal"), "recorded_at": utc_now(), **copy.deepcopy(signal)}
+            self.write_json(self.style_dir(style_id) / "learning" / "signals" / (record["signal_id"] + ".json"), record)
+            self.rebuild_learning_state(style_id)
+            return record
 
     def upsert_learning_signal(self, style_id: str, signal: Dict[str, Any]) -> Dict[str, Any]:
         """Replace one scoped source-key outcome while preserving its stable ID.
@@ -182,14 +197,15 @@ class JsonStore:
         duplicate evidence. The latest successful approval supersedes the
         earlier positive outcome while the append-only timeline events remain.
         """
-        source_key = signal.get("source_key")
-        existing = next((item for item in self.list_learning_signals(style_id) if item.get("source_key") == source_key), None) if source_key else None
-        if not existing:
-            return self.save_learning_signal(style_id, signal)
-        record = {**existing, **copy.deepcopy(signal), "updated_at": utc_now()}
-        self.write_json(self.style_dir(style_id) / "learning" / "signals" / (record["signal_id"] + ".json"), record)
-        self.rebuild_learning_state(style_id)
-        return record
+        with self._mutation_lock:
+            source_key = signal.get("source_key")
+            existing = next((item for item in self.list_learning_signals(style_id) if item.get("source_key") == source_key), None) if source_key else None
+            if not existing:
+                return self.save_learning_signal(style_id, signal)
+            record = {**existing, **copy.deepcopy(signal), "updated_at": utc_now()}
+            self.write_json(self.style_dir(style_id) / "learning" / "signals" / (record["signal_id"] + ".json"), record)
+            self.rebuild_learning_state(style_id)
+            return record
 
     def list_learning_signals(self, style_id: str) -> List[Dict[str, Any]]:
         root = self.style_dir(style_id) / "learning" / "signals"
@@ -328,36 +344,43 @@ class JsonStore:
                               prompt: str = "", target_seconds: int = 60,
                               intent: Dict[str, Any] | None = None,
                               recipe_match: Dict[str, Any] | None = None,
-                              device_id: str | None = None) -> Dict[str, Any]:
-        session_id = new_id("upload")
-        folder = self.upload_session_dir(session_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        manifest = {
-            "schema_version": "2.0",
-            "session_id": session_id,
-            "name": name.strip(),
-            "style_id": style_id,
-            "provider": provider,
-            "prompt": prompt.strip(),
-            "target_duration_seconds": target_seconds,
-            "intent_interpretation": intent,
-            "recipe_match": recipe_match,
-            "device_id": device_id,
-            "created_at": utc_now(),
-            "status": "uploading",
-            "files": [],
-        }
-        self.write_json(folder / "manifest.json", manifest)
-        return manifest
+                              device_id: str | None = None,
+                              draft_id: str | None = None) -> Dict[str, Any]:
+        with self._mutation_lock:
+            if style_id and self.style(style_id).get("status") == "style_deleting":
+                raise ValueError("This recipe is being archived; choose another recipe.")
+            session_id = new_id("upload")
+            folder = self.upload_session_dir(session_id)
+            folder.mkdir(parents=True, exist_ok=True)
+            manifest = {
+                "schema_version": "2.0",
+                "session_id": session_id,
+                "name": name.strip(),
+                "style_id": style_id,
+                "provider": provider,
+                "prompt": prompt.strip(),
+                "target_duration_seconds": target_seconds,
+                "intent_interpretation": intent,
+                "recipe_match": recipe_match,
+                "device_id": device_id,
+                "draft_id": draft_id,
+                "created_at": utc_now(),
+                "status": "uploading",
+                "files": [],
+            }
+            self.write_json(folder / "manifest.json", manifest)
+            return manifest
 
     def upload_session(self, session_id: str) -> Dict[str, Any]:
         return self.read_json(self.upload_session_dir(session_id) / "manifest.json")
 
     def update_upload_session(self, session_id: str, **changes: Any) -> Dict[str, Any]:
-        manifest = self.upload_session(session_id)
-        manifest.update(changes)
-        self.write_json(self.upload_session_dir(session_id) / "manifest.json", manifest)
-        return manifest
+        with self._mutation_lock:
+            manifest = self.upload_session(session_id)
+            manifest.update(changes)
+            manifest["updated_at"] = utc_now()
+            self.write_json(self.upload_session_dir(session_id) / "manifest.json", manifest)
+            return manifest
 
     def resolve_data_path(self, relative_path: str) -> Path:
         candidate = (self.data_dir / relative_path).resolve()
@@ -385,6 +408,12 @@ class JsonStore:
         try:
             cached = self.read_json(path)
         except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(cached, dict):
+            return None
+        if cached.get("source_sha256") != source_sha256:
+            return None
+        if cached.get("cache_purpose") != purpose:
             return None
         if cached.get("provider") != provider or cached.get("model") != identity.get("model"):
             return None
@@ -416,16 +445,92 @@ class JsonStore:
         record["cache_identity"] = copy.deepcopy(identity)
         record["cache_recorded_at"] = utc_now()
         record["cache_purpose"] = purpose
+        record["source_sha256"] = source_sha256
         path = self.analysis_cache_path(provider, purpose, source_sha256, identity)
         self.write_json(path, record)
         return path
 
     def update_style(self, style_id: str, **changes: Any) -> Dict[str, Any]:
-        profile = self.style(style_id)
-        profile.update(changes)
-        profile["updated_at"] = utc_now()
-        self.write_json(self.style_dir(style_id) / "profile.json", profile)
-        return profile
+        with self._mutation_lock:
+            profile = self.style(style_id)
+            profile.update(changes)
+            profile["updated_at"] = utc_now()
+            self.write_json(self.style_dir(style_id) / "profile.json", profile)
+            return profile
+
+    def transition_style(self, style_id: str, *, reject_statuses=(),
+                         require_statuses=None, **changes: Any) -> Dict[str, Any]:
+        """Atomically validate and commit a recipe-analysis state transition."""
+        with self._mutation_lock:
+            profile = self.style(style_id)
+            status = profile.get("status")
+            if status in set(reject_statuses):
+                raise ValueError("Wait for the current recipe task to finish")
+            if require_statuses is not None and status not in set(require_statuses):
+                raise ValueError("The recipe state changed; refresh and try again")
+            profile.update(changes)
+            profile["updated_at"] = utc_now()
+            self.write_json(self.style_dir(style_id) / "profile.json", profile)
+            return profile
+
+    def begin_style_deletion(self, style_id: str, *, reject_statuses=()) -> Dict[str, Any]:
+        """Atomically block new recipe work and projects before archive cleanup."""
+        with self._mutation_lock:
+            profile = self.style(style_id)
+            if profile.get("status") in set(reject_statuses):
+                raise ValueError("Wait for the current recipe task to finish before deleting it.")
+            if any(
+                project.get("style_id") == style_id
+                for project in self.list_projects()
+            ):
+                raise ValueError(
+                    "This style is used by an existing project; delete or archive that project first."
+                )
+            if any(
+                upload.get("style_id") == style_id
+                and upload.get("status") in {
+                    "uploading", "inspecting", "ready_for_brief", "promoting",
+                }
+                for upload in self.list_records(self.upload_sessions_dir, "manifest.json")
+            ):
+                raise ValueError(
+                    "This style is used by an unfinished project upload; finish or clear that upload first."
+                )
+            return_status = profile.get("status") or "references_uploaded"
+            profile.update(
+                status="style_deleting",
+                deletion_return_status=return_status,
+                active_task="Archiving this recipe",
+                active_started_at=utc_now(),
+                last_error=None,
+                updated_at=utc_now(),
+            )
+            self.write_json(self.style_dir(style_id) / "profile.json", profile)
+            return profile
+
+    def restore_style_deletion(self, style_id: str, message: str) -> Dict[str, Any]:
+        """Return an interrupted/failed archive to its exact prior state."""
+        with self._mutation_lock:
+            profile = self.style(style_id)
+            if profile.get("status") != "style_deleting":
+                return profile
+            return_status = profile.get("deletion_return_status") or "references_uploaded"
+            profile.update(
+                status=return_status,
+                deletion_return_status=None,
+                active_task=None,
+                active_started_at=None,
+                last_error=message,
+                last_error_details={
+                    "type": "InterruptedDeletion",
+                    "code": "recipe_deletion_interrupted",
+                    "message": message,
+                    "recorded_at": utc_now(),
+                },
+                updated_at=utc_now(),
+            )
+            self.write_json(self.style_dir(style_id) / "profile.json", profile)
+            return profile
 
     def save_recipe_draft(self, style_id: str, recipe: Dict[str, Any], version: str,
                           base_version: str = None) -> Dict[str, Any]:
@@ -444,35 +549,45 @@ class JsonStore:
         self.write_json(self.style_dir(style_id) / "drafts" / "current.json", draft)
         return draft
 
-    def approve_recipe_version(self, style_id: str) -> Dict[str, Any]:
-        profile = self.style(style_id)
-        recipe = profile.get("recipe")
-        version = profile.get("recipe_version")
-        if not recipe or not version or not VERSION_PATTERN.fullmatch(version):
-            raise ValueError("Create and review a recipe before approving it")
-        frozen = copy.deepcopy(recipe)
-        frozen["status"] = "validated"
-        frozen["approved_at"] = utc_now()
-        destination = self.style_dir(style_id) / "versions" / (version + ".json")
-        if destination.exists():
-            raise ValueError("This recipe version is already approved and immutable")
-        self.write_json(destination, frozen)
-        history = profile.get("recipe_history", []) + [{
-            "recipe_version": version,
-            "status": "validated",
-            "approved_at": frozen["approved_at"],
-            "path": str(destination.relative_to(self.data_dir)),
-        }]
-        self.write_json(self.style_dir(style_id) / "drafts" / "current.json", frozen)
-        return self.update_style(
-            style_id,
-            recipe=frozen,
-            recipe_status="validated",
-            recipe_history=history,
-            style_analysis=frozen,
-            status="approved",
-            approval={"approved": True, "approved_at": frozen["approved_at"], "recipe_version": version},
-        )
+    def approve_recipe_version(self, style_id: str, *, reject_statuses=()) -> Dict[str, Any]:
+        """Freeze one reviewed version without racing an analysis or revision."""
+        with self._mutation_lock:
+            profile = self.style(style_id)
+            if profile.get("status") in set(reject_statuses):
+                raise ValueError("Wait for the current recipe task to finish")
+            recipe = profile.get("recipe")
+            version = profile.get("recipe_version")
+            if not recipe or not version or not VERSION_PATTERN.fullmatch(version):
+                raise ValueError("Create and review a recipe before approving it")
+            frozen = copy.deepcopy(recipe)
+            frozen["status"] = "validated"
+            frozen["approved_at"] = utc_now()
+            destination = self.style_dir(style_id) / "versions" / (version + ".json")
+            if destination.exists():
+                raise ValueError("This recipe version is already approved and immutable")
+            self.write_json(destination, frozen)
+            history = profile.get("recipe_history", []) + [{
+                "recipe_version": version,
+                "status": "validated",
+                "approved_at": frozen["approved_at"],
+                "path": str(destination.relative_to(self.data_dir)),
+            }]
+            self.write_json(self.style_dir(style_id) / "drafts" / "current.json", frozen)
+            profile.update(
+                recipe=frozen,
+                recipe_status="validated",
+                recipe_history=history,
+                style_analysis=frozen,
+                status="approved",
+                approval={
+                    "approved": True,
+                    "approved_at": frozen["approved_at"],
+                    "recipe_version": version,
+                },
+                updated_at=utc_now(),
+            )
+            self.write_json(self.style_dir(style_id) / "profile.json", profile)
+            return profile
 
     def recipe_version(self, style_id: str, version: str) -> Dict[str, Any]:
         if not VERSION_PATTERN.fullmatch(version):
@@ -488,19 +603,36 @@ class JsonStore:
 
     def delete_style(self, style_id: str) -> Path:
         """Move a style to a dated local archive so accidental deletion is recoverable."""
-        source = self.style_dir(style_id)
-        if not source.exists():
-            raise FileNotFoundError(style_id)
-        target = self.deleted_styles_dir / (style_id + "-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
-        shutil.move(str(source), str(target))
-        return target
+        with self._mutation_lock:
+            source = self.style_dir(style_id)
+            if not source.exists():
+                raise FileNotFoundError(style_id)
+            target = self.deleted_styles_dir / (style_id + "-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+            shutil.move(str(source), str(target))
+            return target
 
     def update_project(self, project_id: str, **changes: Any) -> Dict[str, Any]:
-        manifest = self.project(project_id)
-        manifest.update(changes)
-        manifest["updated_at"] = utc_now()
-        self.write_json(self.project_dir(project_id) / "manifest.json", manifest)
-        return manifest
+        with self._mutation_lock:
+            manifest = self.project(project_id)
+            manifest.update(changes)
+            manifest["updated_at"] = utc_now()
+            self.write_json(self.project_dir(project_id) / "manifest.json", manifest)
+            return manifest
+
+    def transition_project(self, project_id: str, *, reject_statuses=(),
+                           require_statuses=None, **changes: Any) -> Dict[str, Any]:
+        """Atomically validate and commit a project state transition."""
+        with self._mutation_lock:
+            manifest = self.project(project_id)
+            status = manifest.get("status")
+            if status in set(reject_statuses):
+                raise ValueError("Wait for the current project task to finish")
+            if require_statuses is not None and status not in set(require_statuses):
+                raise ValueError("The project state changed; refresh and try again")
+            manifest.update(changes)
+            manifest["updated_at"] = utc_now()
+            self.write_json(self.project_dir(project_id) / "manifest.json", manifest)
+            return manifest
 
     def approve_project_run(self, project_id: str, run_id: str, feedback: Dict[str, Any]) -> Dict[str, Any]:
         project = self.project(project_id)
@@ -640,11 +772,12 @@ class JsonStore:
     def record_remote_asset(self, owner_dir: Path, provider: str, file_id: str, asset: Any) -> None:
         if not asset:
             return
-        path = owner_dir / "remote_assets.json"
-        record = self.read_json(path) if path.exists() else {"assets": []}
-        if not any(item.get("provider") == provider and item.get("id") == asset.get("id") for item in record["assets"]):
-            record["assets"].append({"provider": provider, "file_id": file_id, **asset, "recorded_at": utc_now()})
-            self.write_json(path, record)
+        with self._mutation_lock:
+            path = owner_dir / "remote_assets.json"
+            record = self.read_json(path) if path.exists() else {"assets": []}
+            if not any(item.get("provider") == provider and item.get("id") == asset.get("id") for item in record["assets"]):
+                record["assets"].append({"provider": provider, "file_id": file_id, **asset, "recorded_at": utc_now()})
+                self.write_json(path, record)
 
     def remote_assets(self) -> List[Dict[str, Any]]:
         assets = []
@@ -658,18 +791,98 @@ class JsonStore:
                     assets.append({**item, "owner_type": owner_type, "owner_id": path.parent.name})
         return sorted(assets, key=lambda item: item.get("recorded_at", ""), reverse=True)
 
+    def record_remote_cleanup_tombstone(
+        self, owner_type: str, owner_id: str, provider: str, asset_id: str,
+        *, local_context: str,
+    ) -> Dict[str, Any]:
+        """Keep a privacy-safe cleanup record after its owning local item is removed."""
+        if owner_type not in {"project", "style"}:
+            raise ValueError("Invalid remote cleanup owner type")
+        if local_context not in {"project_deletion", "style_archive"}:
+            raise ValueError("Invalid remote cleanup context")
+        provider_name = (
+            provider if isinstance(provider, str) and re.fullmatch(r"[a-z0-9_-]{1,32}", provider)
+            else "unsupported"
+        )
+        provider_identity = str(provider)[:128]
+        fingerprint_source = "\0".join((
+            owner_type,
+            str(owner_id)[:128],
+            provider_identity,
+            str(asset_id)[:512],
+        ))
+        fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+        with self._mutation_lock:
+            existing = next((
+                item for item in self.remote_cleanup_tombstones()
+                if item.get("asset_fingerprint") == fingerprint
+            ), None)
+            if existing:
+                return existing
+            record = {
+                "schema_version": "1.0",
+                "cleanup_id": new_id("cleanup"),
+                "recorded_at": utc_now(),
+                "owner_type": owner_type,
+                "provider": provider_name,
+                "remote_asset_id": str(asset_id)[:512],
+                "status": "cleanup_unavailable",
+                "remote_retention": "unknown",
+                "reason_code": "unsupported_provider",
+                "local_context": local_context,
+                "asset_fingerprint": fingerprint,
+            }
+            self.write_json(
+                self.remote_cleanup_dir / (record["cleanup_id"] + ".json"), record,
+            )
+            return record
+
+    def remote_cleanup_tombstones(self) -> List[Dict[str, Any]]:
+        records = []
+        for path in sorted(self.remote_cleanup_dir.glob("cleanup-*.json"), reverse=True):
+            try:
+                records.append(self.read_json(path))
+            except (OSError, json.JSONDecodeError):
+                continue
+        return sorted(records, key=lambda item: item.get("recorded_at", ""), reverse=True)
+
     def mark_remote_asset_deleted(self, owner_type: str, owner_id: str, provider: str, asset_id: str) -> Dict[str, Any]:
-        owner_dir = self.style_dir(owner_id) if owner_type == "style" else self.project_dir(owner_id)
-        path = owner_dir / "remote_assets.json"
-        record = self.read_json(path)
-        match = next((item for item in record.get("assets", []) if item.get("provider") == provider and item.get("id") == asset_id), None)
-        if not match:
-            raise FileNotFoundError(asset_id)
-        match["status"] = "deleted"
-        match["retained"] = False
-        match["deleted_at"] = utc_now()
-        self.write_json(path, record)
-        return match
+        with self._mutation_lock:
+            owner_dir = self.style_dir(owner_id) if owner_type == "style" else self.project_dir(owner_id)
+            path = owner_dir / "remote_assets.json"
+            record = self.read_json(path)
+            match = next((item for item in record.get("assets", []) if item.get("provider") == provider and item.get("id") == asset_id), None)
+            if not match:
+                raise FileNotFoundError(asset_id)
+            match["status"] = "deleted"
+            match["retained"] = False
+            match["deleted_at"] = utc_now()
+            self.write_json(path, record)
+            return match
+
+    def mark_remote_asset_cleanup_unavailable(
+        self, owner_type: str, owner_id: str, provider: str, asset_id: str,
+    ) -> Dict[str, Any]:
+        """Record that a retired provider cannot be contacted without claiming deletion."""
+        with self._mutation_lock:
+            owner_dir = self.style_dir(owner_id) if owner_type == "style" else self.project_dir(owner_id)
+            path = owner_dir / "remote_assets.json"
+            record = self.read_json(path)
+            match = next((
+                item for item in record.get("assets", [])
+                if item.get("provider") == provider and item.get("id") == asset_id
+            ), None)
+            if not match:
+                raise FileNotFoundError(asset_id)
+            match["status"] = "cleanup_unavailable"
+            match["retained"] = True
+            match["cleanup"] = {
+                "status": "unsupported_provider",
+                "message": "Remote deletion is unavailable because the original provider is no longer supported.",
+            }
+            match["cleanup_checked_at"] = utc_now()
+            self.write_json(path, record)
+            return match
 
     def create_style(self, label: str, reference_paths: Iterable[Path], metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         style_id = new_id("style")
@@ -719,54 +932,83 @@ class JsonStore:
                        metadata: Dict[str, Dict[str, Any]],
                        intent: Dict[str, Any] | None = None,
                        recipe_match: Dict[str, Any] | None = None,
-                       device_id: str | None = None) -> Dict[str, Any]:
-        project_id = new_id("project")
-        folder = self.projects_dir / project_id
+                       device_id: str | None = None,
+                       source_checksums: Dict[str, str] | None = None,
+                       reuse_staged_files: bool = False,
+                       project_id_override: str | None = None,
+                       source_original_names: Dict[str, str] | None = None) -> Dict[str, Any]:
+        project_id = project_id_override or new_id("project")
+        folder = self.project_dir(project_id)
+        if folder.exists():
+            raise FileExistsError(project_id)
         raw_dir = folder / "raw"
         raw_dir.mkdir(parents=True)
-        files = []
-        for index, source in enumerate(raw_paths, start=1):
-            name_on_disk = "%03d-%s" % (index, safe_name(source.name))
-            target = raw_dir / name_on_disk
-            shutil.copy2(str(source), str(target))
-            files.append({
-                "file_id": "raw-%03d" % index,
-                "original_name": source.name,
-                "stored_path": str(target.relative_to(self.data_dir)),
-                "sha256": sha256(target),
-                "metadata": metadata.get(str(source), {}),
-                "analysis_status": "pending",
-            })
-        style = self.style(style_id)
-        recipe = style.get("recipe") or style.get("style_analysis") or {}
-        recipe_version = style.get("recipe_version") or "0.0.0"
-        snapshot_path = folder / "recipe_snapshot.json"
-        self.write_json(snapshot_path, copy.deepcopy(recipe))
-        manifest = {
-            "schema_version": "3.0",
-            "project_id": project_id,
-            "name": name.strip() or project_id,
-            "style_id": style_id,
-            "recipe_version": recipe_version,
-            "recipe_snapshot_path": str(snapshot_path.relative_to(self.data_dir)),
-            "provider": provider,
-            "prompt": prompt.strip(),
-            "target_duration_seconds": target_seconds,
-            "intent_interpretation": intent,
-            "recipe_match": recipe_match,
-            "device_id": device_id,
-            "retrieved_approved_examples": [],
-            "status": "footage_uploaded",
-            "created_at": utc_now(),
-            "updated_at": utc_now(),
-            "raw_files": files,
-            "runs": [],
-            "content_map": None,
-            "last_error": None,
-        }
-        self.write_json(folder / "manifest.json", manifest)
-        self.write_json(folder / "remote_assets.json", {"assets": []})
-        return manifest
+        try:
+            files = []
+            checksums = source_checksums or {}
+            original_names = source_original_names or {}
+            for index, source in enumerate(raw_paths, start=1):
+                original_name = original_names.get(str(source)) or source.name
+                name_on_disk = "%03d-%s" % (index, safe_name(original_name))
+                target = raw_dir / name_on_disk
+                if reuse_staged_files:
+                    try:
+                        target.hardlink_to(source)
+                    except OSError:
+                        shutil.copy2(str(source), str(target))
+                else:
+                    shutil.copy2(str(source), str(target))
+                known_checksum = checksums.get(str(source), "")
+                checksum = known_checksum if re.fullmatch(r"[a-f0-9]{64}", known_checksum) else sha256(target)
+                files.append({
+                    "file_id": "raw-%03d" % index,
+                    "original_name": original_name,
+                    "stored_path": str(target.relative_to(self.data_dir)),
+                    "sha256": checksum,
+                    "metadata": metadata.get(str(source), {}),
+                    "analysis_status": "pending",
+                })
+            # The final style check and first project manifest are one short
+            # critical section with style-deletion admission. Copying/hard-linking
+            # media stays outside the lock so unrelated JSON work is not stalled.
+            with self._mutation_lock:
+                style = self.style(style_id)
+                if style.get("status") == "style_deleting":
+                    raise ValueError("This recipe is being archived; choose another recipe.")
+                recipe = style.get("recipe") or style.get("style_analysis") or {}
+                recipe_version = style.get("recipe_version") or "0.0.0"
+                snapshot_path = folder / "recipe_snapshot.json"
+                self.write_json(snapshot_path, copy.deepcopy(recipe))
+                manifest = {
+                    "schema_version": "3.0",
+                    "project_id": project_id,
+                    "name": name.strip() or project_id,
+                    "style_id": style_id,
+                    "recipe_version": recipe_version,
+                    "recipe_snapshot_path": str(snapshot_path.relative_to(self.data_dir)),
+                    "provider": provider,
+                    "prompt": prompt.strip(),
+                    "target_duration_seconds": target_seconds,
+                    "intent_interpretation": intent,
+                    "recipe_match": recipe_match,
+                    "device_id": device_id,
+                    "retrieved_approved_examples": [],
+                    "status": "footage_uploaded",
+                    "created_at": utc_now(),
+                    "updated_at": utc_now(),
+                    "raw_files": files,
+                    "runs": [],
+                    "content_map": None,
+                    "last_error": None,
+                }
+                self.write_json(folder / "manifest.json", manifest)
+                self.write_json(folder / "remote_assets.json", {"assets": []})
+                return manifest
+        except Exception:
+            # Hard links leave staged inputs intact, so a failed promotion can
+            # safely remove only the incomplete project and be retried.
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
 
     def delete_project(self, project_id: str) -> None:
         """Delete one local project and its media. Remote provider assets are separate."""

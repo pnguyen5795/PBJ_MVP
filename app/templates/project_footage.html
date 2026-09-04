@@ -13,7 +13,7 @@
     <input type="hidden" name="prompt" value="{{ draft.description }}">
     <input type="hidden" name="name" value="{{ draft.name }}">
     <label id="footage-dropzone" class="pbj-np1__dropzone-empty" for="footage-input">
-      <input id="footage-input" class="file-input-overlay" type="file" name="footage" accept="video/*" multiple required aria-label="Choose raw footage videos">
+      <input id="footage-input" class="file-input-overlay" type="file" name="footage" accept="video/*" multiple {% if not uploaded_session or not uploaded_session.files %}required{% endif %} aria-label="Choose raw footage videos">
       <span class="pbj-np1__plus">＋</span><span class="pbj-np1__dropzone-copy"><strong>Add videos</strong><small>Choose from Photos or Files</small></span><span class="pbj-np1__choose">Choose</span>
     </label>
     <div id="selected-files" class="selected-files" aria-live="polite"></div>
@@ -24,7 +24,7 @@
   </section></div></div></section>
 {% endblock %}
 {% block scripts %}
-{% if not uploaded_session %}
+{% if not uploaded_session or uploaded_session.status != 'ready_for_brief' %}
 <script>
 (function(){
   const form=document.getElementById('footage-upload-form');
@@ -36,15 +36,21 @@
   const existingSessionId=form.dataset.sessionId||'';
   let currentSessionId=existingSessionId;
   const alreadyUploaded={{ (uploaded_session.files if uploaded_session else [])|tojson }};
+  const completedSelections=new Set();
+  const uploadIds=new WeakMap();
   const progressBuckets={};
+  function uploadId(file){
+    if(!uploadIds.has(file))uploadIds.set(file,(crypto.randomUUID?crypto.randomUUID():'upload-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)));
+    return uploadIds.get(file)
+  }
   function diagnostic(event,details,useBeacon){
     const connection=navigator.connection||{};
-    const payload=Object.assign({event:event,upload_session_id:currentSessionId||null,online:navigator.onLine,visibility:document.visibilityState,connection_type:connection.effectiveType||connection.type||null,client_recorded_at:new Date().toISOString(),viewport_width:window.innerWidth,viewport_height:window.innerHeight},details||{});
+    const payload=Object.assign({event:event,upload_session_id:currentSessionId||null,online:navigator.onLine,visibility:document.visibilityState,connection_type:connection.effectiveType||connection.type||null,viewport_width:window.innerWidth,viewport_height:window.innerHeight},details||{});
     const body=JSON.stringify(payload);
     if(useBeacon&&navigator.sendBeacon){navigator.sendBeacon('/diagnostics/client',new Blob([body],{type:'application/json'}));return}
     fetch('/diagnostics/client',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){})
   }
-  diagnostic('page_loaded',{stage:existingSessionId?'upload_resume':'footage_picker',total_files:alreadyUploaded.length,user_agent:navigator.userAgent});
+  diagnostic('page_loaded',{stage:existingSessionId?'upload_resume':'footage_picker',total_files:alreadyUploaded.length});
   function formatSize(bytes){if(bytes<1048576)return Math.max(1,Math.round(bytes/1024))+' KB';return (bytes/1048576).toFixed(1)+' MB'}
   function showFiles(){
     const files=Array.from(input.files||[]);
@@ -57,13 +63,15 @@
   ['dragleave','drop'].forEach(function(name){input.addEventListener(name,function(){zone.classList.remove('drag-active');setTimeout(showFiles,0)})});
   input.addEventListener('change',showFiles);
   function message(text, error){status.hidden=false;status.className='notice '+(error?'error':'');status.textContent=text}
-  function fileKey(file){return file.name+'|'+file.size}
   function uploadOne(sessionId, file, index, total, attempt){
     const attemptNumber=(attempt||0)+1;
     diagnostic('upload_started',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber});
     return new Promise(function(resolve,reject){
       const request=new XMLHttpRequest();
       request.open('POST','/projects/upload-session/'+encodeURIComponent(sessionId)+'/file');
+      request.setRequestHeader('X-PBJ-Filename',encodeURIComponent(file.name));
+      request.setRequestHeader('X-PBJ-Upload-ID',uploadId(file));
+      request.setRequestHeader('Content-Type',file.type||'application/octet-stream');
       request.upload.onprogress=function(event){
         if(event.lengthComputable){
           const percent=Math.round(event.loaded/event.total*100);
@@ -75,22 +83,20 @@
       request.onload=function(){
         let payload={};
         try{payload=JSON.parse(request.responseText||'{}')}catch(e){}
-        if(request.status>=200&&request.status<300){diagnostic('upload_completed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,loaded_bytes:file.size,percent:100,attempt:attemptNumber});resolve(payload)}
-        else{diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'http_'+request.status});reject(new Error(payload.detail||'Video '+index+' could not be uploaded.'))}
+        if(request.status>=200&&request.status<300){completedSelections.add(file);diagnostic('upload_completed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,loaded_bytes:file.size,percent:100,attempt:attemptNumber});resolve(payload)}
+        else{diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'http_'+request.status});const error=new Error(payload.detail||'Video '+index+' could not be uploaded.');error.retryable=request.status===408||request.status===429||request.status>=500;reject(error)}
       };
-      request.onerror=function(){diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'xhr_network'});reject(new Error('The connection stopped while uploading video '+index+'.'))};
-      const body=new FormData(); body.append('footage',file,file.name); request.send(body);
+      request.onerror=function(){diagnostic('upload_failed',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber,error_code:'xhr_network'});const error=new Error('The connection stopped while uploading video '+index+'.');error.retryable=true;reject(error)};
+      request.send(file);
     }).catch(function(error){
-      if((attempt||0)<2){diagnostic('upload_retry',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber+1,error_code:'connection_interrupted'});message('Connection paused. Retrying video '+index+'…');return new Promise(function(resolve){setTimeout(resolve,1200*((attempt||0)+1))}).then(function(){return uploadOne(sessionId,file,index,total,(attempt||0)+1)})}
+      if(error.retryable&&(attempt||0)<2){diagnostic('upload_retry',{stage:'file_upload',file_index:index,total_files:total,file_size_bytes:file.size,attempt:attemptNumber+1,error_code:'connection_interrupted'});message('Connection paused. Retrying video '+index+'…');return new Promise(function(resolve){setTimeout(resolve,1200*((attempt||0)+1))}).then(function(){return uploadOne(sessionId,file,index,total,(attempt||0)+1)})}
       throw error;
     });
   }
   form.addEventListener('submit',function(event){
     event.preventDefault();
-    const savedKeys=new Set(alreadyUploaded.map(function(file){return file.original_name+'|'+file.size_bytes}));
-    const files=Array.from(input.files||[]).filter(function(file){return !savedKeys.has(fileKey(file))});
-    if(input.files&&input.files.length&&!files.length){message('Those videos are already saved. Choose any remaining videos, or continue after this batch is complete.',true);return}
-    if(!files.length){message('Choose at least one video before continuing.',true);return}
+    const files=Array.from(input.files||[]).filter(function(file){return !completedSelections.has(file)});
+    if(!files.length&&!alreadyUploaded.length&&!completedSelections.size){message('Choose at least one video before continuing.',true);return}
     const totalBytes=files.reduce(function(sum,file){return sum+file.size},0);
     if(totalBytes>2147483648){message('This batch is over 2 GB. Choose fewer videos, then add another batch later.',true);return}
     submit.disabled=true; submit.textContent='Preparing secure upload…';
@@ -98,7 +104,7 @@
     startBody.append('name',form.querySelector('[name=name]').value||'');
     startBody.append('style_id',form.querySelector('[name=style_id]').value);
     startBody.append('prompt',form.querySelector('[name=prompt]').value||'');
-    const sessionRequest=existingSessionId?Promise.resolve({session_id:existingSessionId}):fetch('/projects/upload-session',{method:'POST',body:startBody})
+    const sessionRequest=currentSessionId?Promise.resolve({session_id:currentSessionId}):fetch('/projects/upload-session',{method:'POST',body:startBody})
       .then(function(response){return response.json().then(function(payload){if(!response.ok)throw new Error(payload.detail||'Could not start the upload.');return payload})});
     sessionRequest
       .then(function(session){

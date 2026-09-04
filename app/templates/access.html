@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff"><title>Private beta · PBJ</title><link rel="stylesheet" href="/ui.css?v=22"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><link rel="icon" href="/static/icons/pbj-192.png"></head>
 <body class="access-body"><main class="access-shell pbj-access pbj-screen-exact">
   <div class="pbj-access__intro">
-    <img src="/static/brand/sandwich-logo.png" alt="PBJ" class="pbj-access__mark">
+    <img src="/static/brand/sandwich-logo-256.png" alt="PBJ" class="pbj-access__mark" width="256" height="256">
     <h1>Welcome to PBJ</h1>
     <p class="access-lead">Your footage. Your direction.<br>One strong first cut.</p>
   </div>
   <div class="pbj-access__entry">
-    {% if error %}<div class="notice error" role="alert">That code did not match. Try again.</div>{% endif %}
+    {% if rate_limited %}<div class="notice error" role="alert">Too many attempts. Wait a few minutes, then try again.</div>{% elif error %}<div class="notice error" role="alert">That code did not match. Try again.</div>{% endif %}
     <form class="access-form" action="/access" method="post">
       <label for="access-code">Access code</label>
       <input id="access-code" name="code" type="password" autocomplete="one-time-code" autocapitalize="none" required autofocus placeholder="Enter access code">
@@ -15,4 +15,5 @@
     </form>
     <small>Access stays active on this device for 7 days.</small>
   </div>
-</main><script>if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(items=>items.forEach(item=>item.unregister())).catch(()=>{});}if('caches' in window){caches.keys().then(keys=>keys.filter(key=>key.startsWith('pbj-shell-')).forEach(key=>caches.delete(key))).catch(()=>{});}</script></body></html>
+</main><script>// Migration cleanup only: remove the retired offline worker and its private shell cache.
+if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(items=>Promise.all(items.map(item=>item.unregister()))).catch(()=>{});}if('caches' in window){caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('pbj-shell-')).map(key=>caches.delete(key)))).catch(()=>{});}</script></body></html>

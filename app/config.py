@@ -1,12 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import os
 
 from dotenv import load_dotenv
 
+from .security import MAX_SECRET_BYTES
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
+LOCAL_SESSION_SECRET = "pbj-local-development-only"
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -27,16 +30,22 @@ class Settings:
     # Compatibility alias for older provenance consumers. New OpenAI calls use
     # the explicit role settings above.
     openai_model: str = os.getenv("PBJ_EDITING_AGENT_MODEL", os.getenv("PBJ_AGENT_MODEL", "gpt-5.6-luna"))
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
     twelve_labs_model: str = os.getenv("TWELVE_LABS_MODEL", "pegasus1.5")
     access_code: str = os.getenv("PBJ_ACCESS_CODE", "")
     owner_code: str = os.getenv("PBJ_OWNER_CODE", "")
-    session_secret: str = os.getenv("PBJ_SESSION_SECRET", "pbj-local-development-only")
+    session_secret: str = os.getenv("PBJ_SESSION_SECRET", LOCAL_SESSION_SECRET)
     session_days: int = 7
     max_upload_batch_bytes: int = 2 * 1024 * 1024 * 1024
-    hosted_mode: bool = env_flag("PBJ_HOSTED_MODE")
+    hosted_mode: bool = field(default_factory=lambda: env_flag("PBJ_HOSTED_MODE"))
+    https_only: bool = env_flag("PBJ_HTTPS_ONLY")
     shared_workspace: bool = env_flag("PBJ_SHARED_WORKSPACE")
     shared_workspace_id: str = os.getenv("PBJ_SHARED_WORKSPACE_ID", "pbj-private-workspace")
+
+    def __post_init__(self) -> None:
+        # RENDER is a read-only platform marker. A missing, false, or malformed
+        # application flag must never downgrade a Render service into local mode.
+        if env_flag("RENDER") and not self.hosted_mode:
+            object.__setattr__(self, "hosted_mode", True)
 
     @property
     def templates_dir(self) -> Path:
@@ -47,10 +56,40 @@ class Settings:
         return self.root_dir / "app" / "static"
 
 
-settings = Settings()
+def validate_settings(candidate: Settings) -> None:
+    """Reject unsafe hosted configuration before the web process starts."""
+    for name, value in (
+        ("PBJ_ACCESS_CODE", candidate.access_code),
+        ("PBJ_OWNER_CODE", candidate.owner_code),
+    ):
+        if not value:
+            continue
+        try:
+            encoded = value.encode("utf-8")
+        except (AttributeError, UnicodeError) as exc:
+            raise RuntimeError(f"{name} must be valid UTF-8 text.") from exc
+        if len(encoded) > MAX_SECRET_BYTES:
+            raise RuntimeError(
+                f"{name} must be at most {MAX_SECRET_BYTES} bytes when UTF-8 encoded."
+            )
+    if not candidate.hosted_mode:
+        return
+    if not candidate.access_code:
+        raise RuntimeError("PBJ_ACCESS_CODE is required when PBJ_HOSTED_MODE=true.")
+    if (
+        candidate.session_secret == LOCAL_SESSION_SECRET
+        or len(candidate.session_secret.encode("utf-8")) < 32
+    ):
+        raise RuntimeError(
+            "PBJ_SESSION_SECRET must be a unique value of at least 32 bytes "
+            "when PBJ_HOSTED_MODE=true."
+        )
+    if not candidate.https_only:
+        raise RuntimeError("PBJ_HTTPS_ONLY=true is required when PBJ_HOSTED_MODE=true.")
 
-if settings.hosted_mode and not settings.access_code:
-    raise RuntimeError("PBJ_ACCESS_CODE is required when PBJ_HOSTED_MODE=true.")
+
+settings = Settings()
+validate_settings(settings)
 
 
 def save_local_settings(values):
@@ -58,7 +97,7 @@ def save_local_settings(values):
     if settings.hosted_mode:
         raise RuntimeError("Hosted secrets must be changed in the Render dashboard.")
     allowed = (
-        "OPENAI_API_KEY", "GEMINI_API_KEY", "TWELVE_LABS_API_KEY",
+        "OPENAI_API_KEY", "TWELVE_LABS_API_KEY",
         "PBJ_ACCESS_CODE", "PBJ_OWNER_CODE", "PBJ_SESSION_SECRET", "PBJ_HTTPS_ONLY",
     )
     env_path = ROOT_DIR / ".env"

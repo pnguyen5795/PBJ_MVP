@@ -14,13 +14,14 @@ class TroyFaceliftPhase2Tests(unittest.TestCase):
         self.assertIn('action="/access"', template)
         self.assertIn('name="code"', template)
         self.assertIn("pbj-access__mark", template)
-        self.assertIn("/static/brand/sandwich-logo.png", template)
+        self.assertIn("/static/brand/sandwich-logo-256.png", template)
         self.assertNotIn("Clerk", template)
         self.assertNotIn("Continue With Apple", template)
 
     def test_home_matches_troys_minimal_composition_and_canonical_actions(self):
         template = self.read("app/templates/welcome.html")
-        self.assertIn('href="/projects/new"', template)
+        self.assertIn('action="/projects/new/fresh"', template)
+        self.assertIn('method="post"', template)
         self.assertIn('href="/projects"', template)
         self.assertIn("pbj-home__mark", template)
         self.assertIn("pbj-home__actions", template)

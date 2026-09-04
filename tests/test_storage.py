@@ -1,7 +1,9 @@
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from app.storage import JsonStore, safe_name, sha256
 
@@ -35,7 +37,7 @@ class JsonStoreTests(unittest.TestCase):
         source.write_bytes(b"raw")
         style = self.store.create_style("Recipe", [], {})
         project = self.store.create_project(
-            "Owned project", style["style_id"], "gemini", "Prompt", 30,
+            "Owned project", style["style_id"], "pegasus", "Prompt", 30,
             [source], {str(source): {"duration_seconds": 1}}, device_id="device-a",
         )
         signal = self.store.save_learning_signal(style["style_id"], {
@@ -75,15 +77,108 @@ class JsonStoreTests(unittest.TestCase):
         self.store.update_style(style["style_id"], recipe=recipe, recipe_version="1.0.0")
         one = self.video("one.mp4", b"one")
         two = self.video("two.mov", b"two")
-        project = self.store.create_project("Project", style["style_id"], "gemini", "Make it quick", 60, [one, two], {})
+        project = self.store.create_project("Project", style["style_id"], "pegasus", "Make it quick", 60, [one, two], {})
         saved = self.store.project(project["project_id"])
-        self.assertEqual(saved["provider"], "gemini")
+        self.assertEqual(saved["provider"], "pegasus")
         self.assertEqual(len(saved["raw_files"]), 2)
         self.assertNotEqual(saved["raw_files"][0]["sha256"], saved["raw_files"][1]["sha256"])
         self.assertEqual(saved["recipe_version"], "1.0.0")
         self.assertEqual(self.store.recipe_for_project(saved)["summary"], "Pinned recipe")
         self.store.update_style(style["style_id"], recipe={"summary": "Changed current recipe"})
         self.assertEqual(self.store.recipe_for_project(saved)["summary"], "Pinned recipe")
+
+    def test_project_can_reuse_hashed_staging_file_without_copy_or_reread(self):
+        style = self.store.create_style("Staged", [], {})
+        staged = self.store.upload_sessions_dir / "upload-20260903-abcdef" / "raw" / "001-clip.mov"
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b"already-streamed")
+        checksum = sha256(staged)
+
+        with patch("app.storage.sha256", side_effect=AssertionError("unexpected checksum reread")):
+            project = self.store.create_project(
+                "Promoted", style["style_id"], "pegasus", "", 30, [staged], {},
+                source_checksums={str(staged): checksum}, reuse_staged_files=True,
+                source_original_names={str(staged): "clip.mov"},
+            )
+
+        promoted = self.store.resolve_data_path(project["raw_files"][0]["stored_path"])
+        self.assertEqual(project["raw_files"][0]["sha256"], checksum)
+        self.assertEqual(project["raw_files"][0]["original_name"], "clip.mov")
+        self.assertEqual(promoted.name, "001-clip.mov")
+        self.assertEqual(promoted.read_bytes(), b"already-streamed")
+        self.assertEqual(promoted.stat().st_ino, staged.stat().st_ino)
+
+    def test_failed_staged_project_promotion_keeps_source_and_removes_partial_project(self):
+        staged = self.root / "staged.mov"
+        staged.write_bytes(b"retry-safe")
+        before = set(self.store.projects_dir.iterdir())
+
+        with self.assertRaises(FileNotFoundError):
+            self.store.create_project(
+                "Broken", "style-20260903-ffffff", "pegasus", "", 30, [staged], {},
+                source_checksums={str(staged): sha256(staged)}, reuse_staged_files=True,
+            )
+
+        self.assertEqual(staged.read_bytes(), b"retry-safe")
+        self.assertEqual(set(self.store.projects_dir.iterdir()), before)
+
+    def test_concurrent_project_updates_preserve_independent_fields(self):
+        style = self.store.create_style("Concurrent", [], {})
+        project = self.store.create_project("Project", style["style_id"], "pegasus", "", 30, [], {})
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(
+                lambda index: self.store.update_project(project["project_id"], **{"field_%d" % index: index}),
+                range(32),
+            ))
+
+        saved = self.store.project(project["project_id"])
+        self.assertTrue(all(saved["field_%d" % index] == index for index in range(32)))
+
+    def test_analysis_cache_rejects_a_record_with_a_mismatched_embedded_checksum(self):
+        checksum = "a" * 64
+        identity = {
+            "model": "pegasus-1.2", "prompt_version": "raw-footage-v1",
+            "permission_scope": "device:test-device",
+        }
+        path = self.store.save_cached_analysis(
+            "pegasus", "raw_footage", checksum, identity,
+            {"provider": "pegasus", "file_id": "raw-001", "usage": {}},
+        )
+        record = self.store.read_json(path)
+        record["source_sha256"] = "b" * 64
+        self.store.write_json(path, record)
+
+        cached = self.store.cached_analysis(
+            "pegasus", "raw_footage", checksum, identity, "raw-002",
+        )
+
+        self.assertIsNone(cached)
+
+        path.write_text("[]")
+        self.assertIsNone(self.store.cached_analysis(
+            "pegasus", "raw_footage", checksum, identity, "raw-002",
+        ))
+
+    def test_atomic_project_transition_admits_only_one_competing_job(self):
+        style = self.store.create_style("Admission", [], {})
+        project = self.store.create_project("Project", style["style_id"], "pegasus", "", 30, [], {})
+
+        def claim(_index):
+            try:
+                self.store.transition_project(
+                    project["project_id"], reject_statuses={"timeline_queued"},
+                    status="timeline_queued",
+                )
+                return True
+            except ValueError:
+                return False
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            outcomes = list(pool.map(claim, range(16)))
+
+        self.assertEqual(outcomes.count(True), 1)
+        self.assertEqual(self.store.project(project["project_id"])["status"], "timeline_queued")
 
     def test_approved_recipe_version_is_frozen(self):
         source = self.video("versioned-reference.mp4")
@@ -104,11 +199,11 @@ class JsonStoreTests(unittest.TestCase):
     def test_remote_asset_inventory_retains_audit_record_after_deletion(self):
         source = self.video()
         style = self.store.create_style("Style", [source], {})
-        self.store.record_remote_asset(self.store.style_dir(style["style_id"]), "gemini", "reference-001", {"id": "files/abc123", "status": "ready", "retained": True})
+        self.store.record_remote_asset(self.store.style_dir(style["style_id"]), "pegasus", "reference-001", {"id": "assets/abc123", "status": "ready", "retained": True})
         inventory = self.store.remote_assets()
         self.assertEqual(len(inventory), 1)
         self.assertEqual(inventory[0]["owner_id"], style["style_id"])
-        deleted = self.store.mark_remote_asset_deleted("style", style["style_id"], "gemini", "files/abc123")
+        deleted = self.store.mark_remote_asset_deleted("style", style["style_id"], "pegasus", "assets/abc123")
         self.assertFalse(deleted["retained"])
         self.assertEqual(self.store.remote_assets()[0]["status"], "deleted")
 

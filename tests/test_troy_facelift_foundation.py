@@ -35,11 +35,13 @@ class TroyFaceliftFoundationTests(unittest.TestCase):
             actual_hash = hashlib.sha256((brand_root / relative_path).read_bytes()).hexdigest()
             self.assertEqual(actual_hash, expected_hash, relative_path)
 
-    def test_service_worker_precaches_foundation_and_artwork(self):
-        worker = (ROOT_DIR / "app" / "static" / "service-worker.js").read_text()
-        self.assertIn("/static/troy-foundation.css", worker)
-        self.assertIn("/static/brand/sandwich-logo.png", worker)
-        self.assertIn("/static/brand/sandwich/top-bread.png", worker)
+    def test_pages_serve_right_sized_logo_derivative_and_keep_pinned_source(self):
+        derivative = (ROOT_DIR / "app" / "static" / "brand" / "sandwich-logo-256.png").read_bytes()
+        self.assertLess(len(derivative), 60_000)
+        self.assertEqual(int.from_bytes(derivative[16:20], "big"), 256)
+        self.assertEqual(int.from_bytes(derivative[20:24], "big"), 256)
+        for template in ("welcome.html", "access.html", "dashboard.html"):
+            self.assertIn("sandwich-logo-256.png", (ROOT_DIR / "app" / "templates" / template).read_text())
 
     def test_facelift_contract_excludes_troy_studio_and_mock_logic(self):
         plan = (ROOT_DIR / "docs" / "TROY_FACELIFT_PLAN.md").read_text()

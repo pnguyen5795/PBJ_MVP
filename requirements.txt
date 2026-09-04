@@ -6,5 +6,4 @@ itsdangerous>=2.2,<3
 httpx>=0.27,<1
 openai>=1.66,<3
 python-dotenv>=1.0,<2
-google-genai>=1.0,<2
 twelvelabs>=1.0,<3

@@ -1,5 +1,5 @@
 /* Screen compositions ported from Swag420Money/PB-J at 10c8efd.
-   PBJ supplies real routes, data, uploads, progress, and editor handoff. */
+   PBJ supplies real routes, data, uploads, progress, and rendered-cut review. */
 
 .pbj-back-floating{position:fixed;top:calc(var(--pbj-safe-top) + 24px);left:var(--pbj-gutter);z-index:30}
 .pbj-screen-exact .button,.pbj-screen-exact button,.pbj-screen-exact input,.pbj-screen-exact textarea{font-family:var(--pbj-font)}

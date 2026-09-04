@@ -13,7 +13,7 @@ class TroyFaceliftPhase4Tests(unittest.TestCase):
         template = self.read("app/templates/production_progress.html")
         for status in (
             "analysis_queued", "analyzing_footage", "footage_analyzed",
-            "timeline_queued", "planning_timeline", "preparing_proxies",
+            "timeline_queued", "planning_timeline", "export_queued", "exporting",
         ):
             self.assertIn(status, template)
         self.assertIn("Understanding your footage", template)

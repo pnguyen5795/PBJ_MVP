@@ -11,6 +11,8 @@ TIMELINE_FPS = 30
 AUDIO_SAMPLE_RATE = 48_000
 SUPPORTED_TRACK_KINDS = {"video", "audio"}
 SUPPORTED_CLIP_KINDS = {"video", "audio"}
+ALLOWED_CANVASES = {(1080, 1920), (1080, 1080), (1920, 1080)}
+ALLOWED_TRANSITIONS = {"crossfade"}
 
 
 def frames_from_seconds(value: float) -> int:
@@ -82,13 +84,6 @@ def empty_timeline(project_id: str, assets: Iterable[Dict[str, Any]], *,
     return refresh_hash(timeline)
 
 
-def timeline_duration_frames(timeline: Dict[str, Any]) -> int:
-    return max((
-        int(clip.get("timeline_start_frame", 0)) + int(clip.get("duration_frames", 0))
-        for track in timeline.get("tracks", []) for clip in track.get("clips", [])
-    ), default=0)
-
-
 def main_video_duration_frames(timeline: Dict[str, Any]) -> int:
     """Return the authoritative program duration from the primary video track."""
     main = next((track for track in timeline.get("tracks", [])
@@ -97,18 +92,3 @@ def main_video_duration_frames(timeline: Dict[str, Any]) -> int:
         return 0
     return max((int(clip.get("timeline_start_frame", 0)) + int(clip.get("duration_frames", 0))
                 for clip in main.get("clips", [])), default=0)
-
-
-def find_track(timeline: Dict[str, Any], track_id: str) -> Dict[str, Any]:
-    track = next((item for item in timeline.get("tracks", []) if item.get("track_id") == track_id), None)
-    if not track:
-        raise KeyError("Unknown track: %s" % track_id)
-    return track
-
-
-def find_clip(timeline: Dict[str, Any], clip_id: str):
-    for track in timeline.get("tracks", []):
-        for index, clip in enumerate(track.get("clips", [])):
-            if clip.get("clip_id") == clip_id:
-                return track, index, clip
-    raise KeyError("Unknown clip: %s" % clip_id)

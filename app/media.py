@@ -4,6 +4,11 @@ import json
 import shutil
 import subprocess
 
+from .ffmpeg_runtime import ManagedProcessTimeout, run_media_process
+
+
+MEDIA_INSPECTION_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024
+
 
 def ffmpeg_status() -> Dict[str, Any]:
     return {
@@ -21,10 +26,22 @@ def inspect_video(path: Path) -> Dict[str, Any]:
         "-show_format", "-show_streams", str(path)
     ]
     try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=60)
+        result = run_media_process(
+            command,
+            timeout_seconds=60,
+            capture_stdout=True,
+            stdout_limit_bytes=MEDIA_INSPECTION_OUTPUT_LIMIT_BYTES,
+        )
+        if result.returncode != 0 or result.stdout_truncated:
+            raise ValueError("ffprobe did not return bounded JSON")
         payload = json.loads(result.stdout)
-    except (subprocess.SubprocessError, json.JSONDecodeError) as exc:
-        return {"inspection_error": str(exc)}
+    except (
+        OSError, UnicodeError, ValueError, ManagedProcessTimeout,
+        subprocess.SubprocessError, json.JSONDecodeError,
+    ):
+        # ffprobe errors can contain private filenames and parser details. The
+        # caller only needs a stable category to reject the media safely.
+        return {"inspection_error": "media_inspection_failed"}
     video = next((item for item in payload.get("streams", []) if item.get("codec_type") == "video"), {})
     audio = next((item for item in payload.get("streams", []) if item.get("codec_type") == "audio"), {})
     fmt = payload.get("format", {})

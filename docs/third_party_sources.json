@@ -50,10 +50,11 @@
         "app/templates/project_footage.html", "app/templates/project_brief.html",
         "app/templates/production_progress.html", "app/templates/project_ready.html",
         "app/templates/more.html", "app/static/brand/sandwich-logo.png",
+        "app/static/brand/sandwich-logo-256.png",
         "app/static/brand/sandwich/bottom-bread.png", "app/static/brand/sandwich/peanut-butter.png",
         "app/static/brand/sandwich/jelly.png", "app/static/brand/sandwich/top-bread.png"
       ],
-      "modifications": "Translated Troy's visual tokens and screen compositions into PBJ-native server-rendered templates and CSS wired only to PBJ's real routes, media, jobs, FFmpeg rendering, revision, approval, privacy, and learning state. Preserved safe-area and reduced-motion behavior and copied approved sandwich artwork without modifying its bytes. No Studio, React application state, Clerk authentication, mock data, simulated rendering, alternate service, or backend code was imported.",
+      "modifications": "Translated Troy's visual tokens and screen compositions into PBJ-native server-rendered templates and CSS wired only to PBJ's real routes, media, jobs, FFmpeg rendering, revision, approval, privacy, and learning state. Preserved safe-area and reduced-motion behavior and copied approved sandwich artwork without modifying its source bytes. The 256px sandwich-logo derivative is resized from that pinned source solely for efficient UI delivery. No Studio, React application state, Clerk authentication, mock data, simulated rendering, alternate service, or backend code was imported.",
       "authority_boundary": "Troy's source provides presentation only. PBJ owns all routes, sessions, project state, jobs, media, rendering, privacy, and learning."
     }
   ]

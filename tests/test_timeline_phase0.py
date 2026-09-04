@@ -32,9 +32,33 @@ class TimelinePhaseZeroTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
         route_paths = {getattr(route, "path", "") for route in app.routes}
-        self.assertNotIn("/projects/{project_id}/editor", route_paths)
-        self.assertIn("/projects/{project_id}/ready", route_paths)
-        self.assertNotIn("/projects/{project_id}/openreel", route_paths)
+        retired = {
+            "/projects/{project_id}/editor",
+            "/projects/{project_id}/openreel",
+            "/api/projects/{project_id}/timeline",
+            "/api/projects/{project_id}/timeline/transactions",
+            "/api/projects/{project_id}/timeline/undo",
+            "/api/projects/{project_id}/timeline/redo",
+            "/api/projects/{project_id}/timeline/proposals",
+            "/api/projects/{project_id}/timeline/proposals/{proposal_id}/apply",
+            "/api/projects/{project_id}/timeline/proposals/{proposal_id}/reject",
+            "/api/projects/{project_id}/assets/{asset_id}/preview",
+            "/api/projects/{project_id}/assets/{asset_id}/waveform",
+            "/api/projects/{project_id}/assets/{asset_id}/thumbnail/{index}",
+            "/api/projects/{project_id}/assets",
+            "/api/projects/{project_id}/exports",
+            "/api/projects/{project_id}/exports/{export_id}",
+        }
+        self.assertTrue(retired.isdisjoint(route_paths), retired & route_paths)
+        canonical = {
+            "/projects/{project_id}/ready",
+            "/projects/{project_id}/revise",
+            "/projects/{project_id}/approve",
+            "/projects/{project_id}/exports/{export_id}/progress",
+            "/projects/{project_id}/exports/{export_id}/complete",
+            "/projects/{project_id}/exports/{export_id}/download",
+        }
+        self.assertTrue(canonical.issubset(route_paths), canonical - route_paths)
 
     def test_runtime_launcher_starts_only_pbj(self):
         launcher = (ROOT_DIR / "start_app.command").read_text().casefold()

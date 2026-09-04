@@ -1,5 +1,9 @@
 from typing import Any, Dict, Iterable, List
 import asyncio
+import hashlib
+import json
+import re
+from threading import BoundedSemaphore, Lock
 
 from .decision import OpenAIDecisionEngine
 from .learning import consolidate_signals, permission_scoped_signals, relevant_signals
@@ -7,10 +11,24 @@ from .editorial_intelligence import retrieve_approved_examples
 from .costing import analysis_cost_summary
 from .providers import PROVIDERS
 from .provenance import source_time_decisions
-from .storage import JsonStore, new_id, utc_now
+from .storage import JsonStore, utc_now
 from .timeline.migration import timeline_from_edit_plan
-from .timeline.proxies import ProxyPipeline
 from .timeline.storage import TimelineStore
+
+
+# A fixed set of process-wide stripes prevents two concurrent projects from
+# paying to analyze the same authorized cache identity. Fixed striping keeps
+# the coordination structure bounded for the lifetime of the one-process demo.
+_ANALYSIS_CACHE_LOCKS = tuple(Lock() for _ in range(64))
+_ANALYSIS_PROVIDER_SLOTS = {
+    name: BoundedSemaphore(2) for name in PROVIDERS
+}
+
+ACTIVE_STYLE_JOB_STATES = {
+    "analysis_queued", "analyzing_references",
+    "revision_queued", "revising_style",
+    "style_deleting",
+}
 
 
 def failure_fields(exc: Exception) -> Dict[str, Any]:
@@ -20,31 +38,43 @@ def failure_fields(exc: Exception) -> Dict[str, Any]:
     body = getattr(exc, "body", None)
     headers = getattr(exc, "headers", None)
     provider_code = body.get("code") if isinstance(body, dict) else None
-    provider_message = body.get("message") if isinstance(body, dict) else None
+    if not isinstance(provider_code, str):
+        provider_code = None
+    category = "unexpected_failure"
     if "insufficient_quota" in lowered or "exceeded your current quota" in lowered:
+        category = "openai_quota_unavailable"
         message = "OpenAI has no API quota available. Add billing or credits in the OpenAI API account, then retry; completed video analysis will be reused."
     elif provider_code == "video_duration_too_short":
+        category = "video_below_provider_minimum"
         message = "One uploaded clip is shorter than the video analyzer's 4-second minimum. PBJ will skip clips that are too short when you retry, while reusing completed analysis."
     elif "response_format_invalid" in lowered:
-        message = "The video analyzer rejected the requested response format. The technical details were saved for debugging."
+        category = "provider_response_format_invalid"
+        message = "The video analyzer rejected the requested response format. Try again; completed analysis will be reused."
     elif "recipe evidence references an unknown source segment" in lowered:
+        category = "recipe_evidence_invalid"
         message = "PBJ could not match one recipe citation to the saved video analysis. Try again; the completed analysis will be reused."
+    elif lowered.startswith("analyzer returned"):
+        category = "analyzer_output_invalid"
+        message = "The video analyzer returned invalid timing or confidence data. Try again; valid completed analysis will be reused."
     elif "nodename nor servname" in lowered or "connecterror" in lowered:
+        category = "provider_unreachable"
         message = "The provider could not be reached. Check the internet connection and retry."
     else:
-        message = technical if len(technical) <= 500 else technical[:497] + "..."
-    diagnostic_message = provider_message or technical
+        message = "PBJ could not complete this step. Try again; completed work will be reused when it is safe to do so."
+    exception_type = re.sub(r"[^A-Za-z0-9_]", "_", type(exc).__name__)[:80] or "Exception"
     details = {
-        "type": type(exc).__name__,
-        "message": diagnostic_message if len(diagnostic_message) <= 1000 else diagnostic_message[:997] + "...",
+        "type": exception_type,
+        "code": category,
+        "message": message,
         "recorded_at": utc_now(),
     }
     if status_code is not None:
-        details["status_code"] = status_code
-    if provider_code:
+        details["status_code"] = int(status_code) if isinstance(status_code, int) else None
+    if provider_code in {"video_duration_too_short", "response_format_invalid", "insufficient_quota", "rate_limit_exceeded"}:
         details["provider_code"] = provider_code
-    if isinstance(headers, dict) and headers.get("x-trace-id"):
-        details["trace_id"] = headers["x-trace-id"]
+    trace_id = headers.get("x-trace-id") if isinstance(headers, dict) else None
+    if isinstance(trace_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", trace_id):
+        details["trace_id"] = trace_id
     return {
         "last_error": message,
         "last_error_details": details,
@@ -60,6 +90,41 @@ def analysis_cache_identity(analyzer: Any, permission_scope: str) -> Dict[str, s
         "prompt_version": str(identity["prompt_version"]),
         "permission_scope": permission_scope,
     }
+
+
+def analysis_cache_lock(provider: str, purpose: str, checksum: str,
+                        identity: Dict[str, str] | None):
+    if not identity:
+        return None
+    key = json.dumps(
+        [provider, purpose, checksum, identity], sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    index = int.from_bytes(hashlib.sha256(key).digest()[:4], "big") % len(_ANALYSIS_CACHE_LOCKS)
+    return _ANALYSIS_CACHE_LOCKS[index]
+
+
+def analysis_result_matches_identity(result: Dict[str, Any],
+                                     identity: Dict[str, str] | None,
+                                     source_checksum: str) -> bool:
+    if not identity or result.get("source_sha256") != source_checksum:
+        return False
+    stored_identity = result.get("cache_identity")
+    if stored_identity is not None:
+        return stored_identity == identity
+    # Older project/style records predate the explicit cache_identity field.
+    # Their owning directory supplies the permission boundary; only backfill
+    # when the saved checksum, model, and prompt version all still match.
+    return (
+        result.get("model") == identity.get("model")
+        and result.get("prompt_version") == identity.get("prompt_version")
+    )
+
+
+async def acquire_analysis_slot(slot: Any) -> bool:
+    """Acquire a thread-backed slot cooperatively without occupying executor workers."""
+    while not slot.acquire(blocking=False):
+        await asyncio.sleep(0.01)
+    return True
 
 
 async def analyze_with_retry(analyzer: Any, source: Any, file_id: str, purpose: str,
@@ -101,47 +166,79 @@ class StyleWorkflow:
                 analyzer = self.analyzers[provider_name]
                 if hasattr(analyzer, "readiness") and not analyzer.readiness().configured:
                     raise RuntimeError("%s is not configured" % provider_name.title())
+                permission_scope = (
+                    "device:%s" % (profile.get("device_id") or "legacy-local")
+                    if profile.get("project_private") else "shared-recipe-evidence"
+                )
+                identity = analysis_cache_identity(analyzer, permission_scope)
                 for reference in profile["reference_files"]:
                     key = (provider_name, reference["file_id"])
-                    if key in existing and not refresh:
+                    saved = existing.get(key)
+                    if (
+                        saved is not None and not refresh
+                        and analysis_result_matches_identity(saved, identity, reference["sha256"])
+                    ):
+                        if saved.get("cache_identity") != identity:
+                            saved = {**saved, "cache_identity": dict(identity)}
+                            self.store.save_style_analysis(
+                                style_id, provider_name, reference["file_id"], saved,
+                            )
+                        reference["analysis_status"] = "complete"
+                        reference.pop("analysis_error", None)
                         continue
                     reference["analysis_status"] = "analyzing"
                     reference.pop("analysis_error", None)
                     self.store.update_style(style_id, reference_files=profile["reference_files"])
                     source = self.store.resolve_data_path(reference["stored_path"])
-                    permission_scope = (
-                        "device:%s" % (profile.get("device_id") or "legacy-local")
-                        if profile.get("project_private") else "shared-recipe-evidence"
+                    lock = analysis_cache_lock(
+                        provider_name, "style_reference", reference["sha256"], identity,
                     )
-                    identity = analysis_cache_identity(analyzer, permission_scope)
-                    result = None
-                    if identity and not refresh:
-                        result = self.store.cached_analysis(
-                            provider_name, "style_reference", reference["sha256"], identity, reference["file_id"],
-                        )
+                    acquired = False
                     try:
+                        if lock:
+                            acquired = await acquire_analysis_slot(lock)
+                        result = None
+                        if identity and not refresh:
+                            result = self.store.cached_analysis(
+                                provider_name, "style_reference", reference["sha256"],
+                                identity, reference["file_id"],
+                            )
                         if result is None:
-                            result = await analyze_with_retry(
-                                analyzer, source, reference["file_id"], "style_reference", self.retry_delays,
+                            provider_slot = _ANALYSIS_PROVIDER_SLOTS.get(provider_name)
+                            provider_acquired = False
+                            try:
+                                if provider_slot:
+                                    provider_acquired = await acquire_analysis_slot(provider_slot)
+                                result = await analyze_with_retry(
+                                    analyzer, source, reference["file_id"],
+                                    "style_reference", self.retry_delays,
+                                )
+                            finally:
+                                if provider_acquired:
+                                    provider_slot.release()
+                        result["duration_seconds"] = reference.get("metadata", {}).get("duration_seconds")
+                        result["source_sha256"] = reference["sha256"]
+                        result["completed_at"] = utc_now()
+                        if identity:
+                            result["cache_identity"] = dict(identity)
+                        self.store.record_remote_asset(
+                            self.store.style_dir(style_id), provider_name,
+                            reference["file_id"], result.get("remote_asset"),
+                        )
+                        self._validate_analysis(result)
+                        self.store.save_style_analysis(style_id, provider_name, reference["file_id"], result)
+                        if identity and not (result.get("cache") or {}).get("hit"):
+                            self.store.save_cached_analysis(
+                                provider_name, "style_reference", reference["sha256"], identity, result,
                             )
                     except Exception as exc:
                         reference["analysis_status"] = "failed"
                         reference["analysis_error"] = failure_fields(exc)["last_error"]
                         self.store.update_style(style_id, reference_files=profile["reference_files"])
                         raise
-                    result["duration_seconds"] = reference.get("metadata", {}).get("duration_seconds")
-                    result["source_sha256"] = reference["sha256"]
-                    result["completed_at"] = utc_now()
-                    self.store.record_remote_asset(
-                        self.store.style_dir(style_id), provider_name,
-                        reference["file_id"], result.get("remote_asset"),
-                    )
-                    self._validate_analysis(result)
-                    self.store.save_style_analysis(style_id, provider_name, reference["file_id"], result)
-                    if identity and not (result.get("cache") or {}).get("hit"):
-                        self.store.save_cached_analysis(
-                            provider_name, "style_reference", reference["sha256"], identity, result,
-                        )
+                    finally:
+                        if acquired:
+                            lock.release()
                     reference["analysis_status"] = "complete"
                     reference.pop("analysis_error", None)
                     self.store.update_style(style_id, reference_files=profile["reference_files"])
@@ -201,7 +298,9 @@ class StyleWorkflow:
         profile = self.store.style(style_id)
         if not profile.get("recipe"):
             raise ValueError("Analyze and review this editing recipe before approving it")
-        approved = self.store.approve_recipe_version(style_id)
+        approved = self.store.approve_recipe_version(
+            style_id, reject_statuses=ACTIVE_STYLE_JOB_STATES,
+        )
         self.store.save_learning_signal(style_id, {
             "source_key": "recipe-approval:%s:%s" % (style_id, approved.get("recipe_version")),
             "type": "recipe_version_approved", "scope": "recipe_governance",
@@ -403,10 +502,21 @@ class ProjectAnalysisWorkflow:
             existing = {item.get("file_id"): item for item in self.store.project_analyses(project_id, provider_name)}
             pending = []
             minimum_duration = float(getattr(analyzer, "minimum_duration_seconds", 0) or 0)
+            identity = analysis_cache_identity(
+                analyzer, "device:%s" % (project.get("device_id") or "legacy-local"),
+            )
             for raw_file in project["raw_files"]:
                 result = existing.get(raw_file["file_id"])
                 duration = raw_file.get("metadata", {}).get("duration_seconds")
-                if result is not None and not refresh:
+                if (
+                    result is not None and not refresh
+                    and analysis_result_matches_identity(result, identity, raw_file["sha256"])
+                ):
+                    if result.get("cache_identity") != identity:
+                        result = {**result, "cache_identity": dict(identity)}
+                        self.store.save_project_analysis(
+                            project_id, provider_name, raw_file["file_id"], result,
+                        )
                     raw_file["analysis_status"] = "complete"
                     raw_file.pop("analysis_error", None)
                     raw_file.pop("analysis_skip_reason", None)
@@ -432,29 +542,39 @@ class ProjectAnalysisWorkflow:
             # Keep a small concurrency limit: it shortens long multi-clip jobs while
             # avoiding a burst that can trigger provider throttling or local pressure.
             semaphore = asyncio.Semaphore(2)
-            cache_locks = {}
 
             async def analyze_file(raw_file: Dict[str, Any]) -> None:
                 async with semaphore:
                     checksum = raw_file["sha256"]
-                    lock = cache_locks.setdefault(checksum, asyncio.Lock())
-                    async with lock:
+                    lock = analysis_cache_lock(provider_name, "raw_footage", checksum, identity)
+                    acquired = False
+                    try:
+                        if lock:
+                            acquired = await acquire_analysis_slot(lock)
                         source = self.store.resolve_data_path(raw_file["stored_path"])
-                        identity = analysis_cache_identity(
-                            analyzer, "device:%s" % (project.get("device_id") or "legacy-local"),
-                        )
                         result = None
                         if identity and not refresh:
                             result = self.store.cached_analysis(
                                 provider_name, "raw_footage", checksum, identity, raw_file["file_id"],
                             )
                         if result is None:
-                            result = await analyze_with_retry(
-                                analyzer, source, raw_file["file_id"], "raw_footage", self.retry_delays,
-                            )
+                            provider_slot = _ANALYSIS_PROVIDER_SLOTS.get(provider_name)
+                            provider_acquired = False
+                            try:
+                                if provider_slot:
+                                    provider_acquired = await acquire_analysis_slot(provider_slot)
+                                result = await analyze_with_retry(
+                                    analyzer, source, raw_file["file_id"],
+                                    "raw_footage", self.retry_delays,
+                                )
+                            finally:
+                                if provider_acquired:
+                                    provider_slot.release()
                         result["duration_seconds"] = raw_file.get("metadata", {}).get("duration_seconds")
                         result["source_sha256"] = checksum
                         result["completed_at"] = utc_now()
+                        if identity:
+                            result["cache_identity"] = dict(identity)
                         self.store.record_remote_asset(
                             self.store.project_dir(project_id), provider_name,
                             raw_file["file_id"], result.get("remote_asset"),
@@ -465,6 +585,9 @@ class ProjectAnalysisWorkflow:
                             self.store.save_cached_analysis(
                                 provider_name, "raw_footage", checksum, identity, result,
                             )
+                    finally:
+                        if acquired:
+                            lock.release()
 
             outcomes = await asyncio.gather(*(analyze_file(item) for item in pending), return_exceptions=True)
             failures = [(item, outcome) for item, outcome in zip(pending, outcomes) if isinstance(outcome, Exception)]
@@ -522,18 +645,17 @@ class ProjectAnalysisWorkflow:
 
 
 class TimelinePreparationWorkflow:
-    """Create the AI's editable first cut without rendering a combined video."""
+    """Create the AI's validated automatic cut before rendering."""
 
-    def __init__(self, store: JsonStore, decision_engine: Any = None, proxy_pipeline: Any = None):
+    def __init__(self, store: JsonStore, decision_engine: Any = None):
         self.store = store
         self.decision_engine = decision_engine or OpenAIDecisionEngine()
-        self.proxy_pipeline = proxy_pipeline or ProxyPipeline(store)
         self.timelines = TimelineStore(store)
 
     async def create(self, project_id: str, feedback: str = "") -> Dict[str, Any]:
         project = self.store.update_project(
             project_id, status="planning_timeline", last_error=None,
-            active_task="Planning your editable first cut",
+            active_task="Planning your first cut",
         )
         try:
             pinned_recipe = self.store.recipe_for_project(project)
@@ -587,17 +709,12 @@ class TimelinePreparationWorkflow:
                 "type": "timeline_initial", "scope": "project_outcome", "project_id": project_id,
                 "device_id": project.get("device_id"), "recipe_version": project.get("recipe_version"),
                 "timeline_hash": timeline["timeline_hash"], "status": "context",
-                "instruction": "AI-created editable first timeline; compare with the latest successful approved export.",
+                "instruction": "AI-created first timeline; compare with the latest successful approved export.",
             })
             return self.store.update_project(
                 project_id, status="timeline_ready", active_task=None, active_revision=None,
                 timeline_hash=timeline["timeline_hash"], timeline_revision=timeline["revision"],
                 initial_timeline_path=str(initial_path.relative_to(self.store.data_dir)),
-                proxy_report={
-                    "skipped": True,
-                    "reason": "Automatic rough cuts render directly from original project media",
-                    "assets": [],
-                },
                 pending_revision_feedback=None,
             )
         except Exception as exc:

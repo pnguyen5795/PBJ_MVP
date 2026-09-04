@@ -12,7 +12,7 @@ A user describes the desired video, optionally supplies finished reference video
 
 The user watches the result and deliberately chooses either **Approve this cut** or **Request changes**. Revision feedback creates a new structured timeline and a newly rendered version without repeating matching paid media analysis. Successful approval records the exact timeline, render receipt, quality results, recipe version, and initial-to-approved comparison as governed evidence.
 
-PBJ does not include OpenReel or a manual timeline editor. The canonical product is an AI-created rendered rough cut with a conversational revision loop.
+PBJ does not include OpenReel or a manual timeline editor. The retired direct editor API, proxy, proposal, and transaction/undo stack are also removed; timeline state is internal to the automatic workflow. The canonical product is an AI-created rendered rough cut with a conversational revision loop.
 
 ## Current objective
 
@@ -20,7 +20,7 @@ Restore and harden the proven Twelve Labs → OpenAI → validated timeline → 
 
 Three bounded OpenAI roles support the journey: the Editing Agent plans cuts, the Timeline Repair Agent receives exact validation failures and gets at most two attempts, and the Learning Agent classifies reference and approved-outcome evidence. When a synthesized recipe cites nonexistent analyzer evidence, the Learning Agent may receive that concrete validation failure for at most two citation-repair attempts; completed media analysis is reused. Agents return structured proposals only; application code owns validation, persistence, rendering, approval, and governance.
 
-The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. The web service uses 1 CPU and 2 GB RAM, but its `/tmp` project storage remains disposable; it is not multi-user or durable release architecture.
+The current hosting milestone is a single, access-code-protected private demonstration workspace on Render. It deliberately shares one workspace across authorized browsers so PBJ can be demonstrated from an iPhone while the development laptop is off. Hosted startup fails closed on weak session configuration; codes match exactly, failed login attempts are throttled, browser mutations are same-origin, and users can log out. A controlled 15-video/60-second run completed without a restart, but saturated the one CPU and used 89.888% of the 2 GB memory limit. The `/tmp` project storage and in-process jobs remain disposable, and the measured run is a narrow demo-capacity result rather than multi-user or durable release architecture.
 
 ## Delivery path
 
@@ -41,6 +41,7 @@ PB&J succeeds when users receive useful rendered first cuts and the work require
 - Original recorded audio and permissioned uploaded audio are allowed.
 - Do not generate or fetch video, images, voices, music, sound effects, or B-roll.
 - Twelve Labs analyzes media; OpenAI proposes structured editorial decisions; application code validates; FFmpeg renders deterministically.
+- Twelve Labs is the sole supported media analyzer; PBJ does not select among or silently fall back to alternate analyzers.
 - FFmpeg executes decisions but never makes creative choices.
 - Only a successful, explicitly approved output becomes positive project evidence.
 - One project never directly rewrites a shared source-backed recipe rule.

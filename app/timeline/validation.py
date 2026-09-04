@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List
 
 from .contracts import (
-    AUDIO_SAMPLE_RATE, SUPPORTED_CLIP_KINDS, SUPPORTED_TRACK_KINDS, TIMELINE_FPS,
-    canonical_hash, samples_from_frames,
+    ALLOWED_CANVASES, ALLOWED_TRANSITIONS, AUDIO_SAMPLE_RATE,
+    SUPPORTED_CLIP_KINDS, SUPPORTED_TRACK_KINDS, TIMELINE_FPS, canonical_hash,
+    samples_from_frames,
 )
-from .operations import ALLOWED_CANVASES, ALLOWED_TRANSITIONS
 
 
 class TimelineValidationError(ValueError):

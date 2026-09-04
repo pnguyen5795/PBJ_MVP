@@ -1,6 +1,7 @@
 import json
 import io
 import asyncio
+import hashlib
 import tempfile
 import time
 import unittest
@@ -8,6 +9,7 @@ import zipfile
 from base64 import b64encode
 from dataclasses import replace
 from pathlib import Path
+from threading import Lock
 from unittest.mock import patch
 
 import httpx
@@ -17,7 +19,7 @@ from itsdangerous import TimestampSigner
 import app.main as main_module
 from app.config import settings
 from app.storage import JsonStore
-from app.timeline.contracts import empty_timeline
+from app.timeline.contracts import empty_timeline, refresh_hash
 from app.timeline.storage import TimelineStore
 
 
@@ -185,6 +187,85 @@ class CanonicalUIFlowTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_approval_rejects_an_active_job_without_changing_its_state(self):
+        self.store.update_project(
+            self.project_id, status="exporting", active_export_id="export-active",
+            active_task="Rendering the current cut", job_return_status="timeline_ready",
+        )
+
+        response = self.client.post(
+            "/projects/%s/approve" % self.project_id,
+            data={"confirmation": "approve"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        saved = self.store.project(self.project_id)
+        self.assertEqual(saved["status"], "exporting")
+        self.assertEqual(saved["active_export_id"], "export-active")
+        self.assertEqual(saved["active_task"], "Rendering the current cut")
+
+    def test_approval_rejects_a_cut_from_an_older_timeline(self):
+        project = self.store.project(self.project_id)
+        export = dict(project["latest_export"])
+        old_timeline = TimelineStore(self.store).load(self.project_id)
+        snapshot_path = (
+            self.store.project_dir(self.project_id) / "exports" /
+            export["export_id"] / "timeline.json"
+        )
+        self.store.write_json(snapshot_path, old_timeline)
+        export["timeline_path"] = str(snapshot_path.relative_to(self.store.data_dir))
+        self.store.update_project(self.project_id, latest_export=export)
+        revised = json.loads(json.dumps(old_timeline))
+        revised["metadata"]["origin"] = "revision_feedback"
+        refresh_hash(revised)
+        TimelineStore(self.store).replace_with_ai_revision(
+            self.project_id, revised, "Use the newer edit",
+        )
+
+        response = self.client.post(
+            "/projects/%s/approve" % self.project_id,
+            data={"confirmation": "approve"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("not the current saved edit", response.text)
+        self.assertFalse(self.store.project(self.project_id).get("final_approval"))
+
+    def test_repeated_approval_is_idempotent(self):
+        project = self.store.project(self.project_id)
+        export = dict(project["latest_export"])
+        receipt_path = self.store.project_dir(self.project_id) / "exports" / export["export_id"] / "render_receipt.json"
+        self.store.write_json(receipt_path, {"verification": {"passed": True}})
+        export["render_receipt_path"] = str(receipt_path.relative_to(self.store.data_dir))
+        self.store.write_json(
+            self.store.project_dir(self.project_id) / "exports" / export["export_id"] / "export.json",
+            export,
+        )
+        self.store.update_project(self.project_id, latest_export=export, status="timeline_ready")
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": ""}):
+            first = self.client.post(
+                "/projects/%s/approve" % self.project_id, data={"confirmation": "approve"},
+            )
+            second = self.client.post(
+                "/projects/%s/approve" % self.project_id, data={"confirmation": "approve"},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        evaluations = list((self.store.style_dir(project["style_id"]) / "evaluations").glob("*.json"))
+        self.assertEqual(len(evaluations), 1)
+
+    def test_revision_rejects_duplicate_active_job(self):
+        self.store.update_project(self.project_id, status="timeline_queued")
+
+        response = self.client.post(
+            "/projects/%s/revise" % self.project_id,
+            data={"feedback": "Make the ending tighter"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+
     def test_processing_copy_distinguishes_timeline_stages(self):
         self.store.update_project(self.project_id, status="planning_timeline")
         response = self.client.get("/projects/%s/production-progress" % self.project_id)
@@ -192,16 +273,198 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertIn("Building and validating the story", response.text)
         self.assertIn("Rendering the video", response.text)
 
+    def test_failed_newer_edit_does_not_hide_behind_the_last_completed_cut(self):
+        for failed_status in ("timeline_failed", "export_failed"):
+            with self.subTest(status=failed_status):
+                self.store.update_project(
+                    self.project_id, status=failed_status,
+                    last_error="The newer edit stopped safely.",
+                )
+                routed = self.client.get(
+                    "/projects/%s" % self.project_id, follow_redirects=False,
+                )
+                self.assertEqual(routed.status_code, 303)
+                self.assertEqual(
+                    routed.headers["location"],
+                    "/projects/%s/production-progress" % self.project_id,
+                )
+                failure = self.client.get(
+                    "/projects/%s/production-progress" % self.project_id,
+                )
+                self.assertIn("The newer edit stopped safely.", failure.text)
+                self.assertIn("View last completed cut", failure.text)
+
+                prior_cut = self.client.get(
+                    "/projects/%s/ready" % self.project_id,
+                )
+                self.assertIn("LAST COMPLETED CUT", prior_cut.text)
+                self.assertIn("newer edit did not finish", prior_cut.text)
+                self.assertIn("Return to the failed edit", prior_cut.text)
+                self.assertNotIn("Approve this cut", prior_cut.text)
+                self.assertNotIn("Request changes", prior_cut.text)
+
+    def test_ready_page_hides_actions_while_a_timeline_task_is_active(self):
+        self.store.update_project(
+            self.project_id, status="approval_running",
+            active_task="Saving your approved cut",
+            job_return_status="timeline_ready",
+        )
+
+        response = self.client.get("/projects/%s/ready" % self.project_id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Saving your approved cut", response.text)
+        self.assertNotIn("Approve this cut", response.text)
+        self.assertNotIn("Request changes", response.text)
+
     def test_restart_marks_interrupted_job_as_retryable(self):
         self.store.update_project(
-            self.project_id, status="preparing_proxies", active_revision=1,
-            active_task="Preparing the handoff",
+            self.project_id, status="planning_timeline", active_revision=1,
+            active_task="Planning the cut",
         )
         main_module.recover_interrupted_jobs()
         recovered = self.store.project(self.project_id)
         self.assertEqual(recovered["status"], "timeline_failed")
         self.assertIsNone(recovered["active_revision"])
         self.assertIn("interrupted", recovered["last_error"].lower())
+
+    def test_restart_returns_interrupted_approval_to_its_saved_timeline(self):
+        self.store.update_project(
+            self.project_id, status="approval_running", job_return_status="timeline_ready",
+            active_task="Saving your approved cut",
+        )
+
+        main_module.recover_interrupted_jobs()
+
+        recovered = self.store.project(self.project_id)
+        self.assertEqual(recovered["status"], "timeline_ready")
+        self.assertIsNone(recovered["job_return_status"])
+        self.assertIsNone(recovered["active_task"])
+        self.assertIn("interrupted", recovered["last_error"].lower())
+
+    def test_restart_reopens_upload_interrupted_during_inspection(self):
+        upload = self.store.create_upload_session(
+            "Interrupted inspection", self.store.list_styles()[0]["style_id"],
+            "pegasus", "Make a short edit", 20, device_id="test-device",
+        )
+        self.store.update_upload_session(upload["session_id"], status="inspecting")
+
+        main_module.recover_interrupted_jobs()
+
+        recovered = self.store.upload_session(upload["session_id"])
+        self.assertEqual(recovered["status"], "uploading")
+        self.assertTrue(recovered["inspection_interrupted_at"])
+
+    def test_restart_recovers_interrupted_recipe_and_project_promotion(self):
+        style = self.store.list_styles()[0]
+        self.store.update_style(style["style_id"], status="analysis_queued")
+        upload = self.store.create_upload_session(
+            "Promotion recovery", style["style_id"], "pegasus", "Make a cut", 20,
+            device_id="test-device",
+        )
+        project_id = "project-20260903-fedcba"
+        project_dir = self.store.project_dir(project_id)
+        staged_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        staged_dir.mkdir(parents=True)
+        staged = staged_dir / "001-private.mov"
+        staged.write_bytes(b"private-media")
+        promoted = project_dir / "raw" / "001-private.mov"
+        promoted.parent.mkdir(parents=True)
+        promoted.hardlink_to(staged)
+        self.store.write_json(project_dir / "manifest.json", {
+            "project_id": project_id, "style_id": style["style_id"],
+            "status": "analysis_queued", "raw_files": [{
+                "file_id": "raw-001", "original_name": "private.mov",
+                "stored_path": str(promoted.relative_to(self.store.data_dir)),
+            }], "runs": [],
+            "promotion_initialized": True,
+        })
+        self.store.update_upload_session(
+            upload["session_id"], status="promoting", project_id=project_id,
+            files=[{"original_name": "private.mov", "stored_path": str(staged.relative_to(self.store.data_dir))}],
+            inspection_metadata={str(staged): {"duration_seconds": 10}},
+        )
+
+        main_module.recover_interrupted_jobs()
+
+        self.assertEqual(self.store.style(style["style_id"])["status"], "analysis_failed")
+        recovered = self.store.upload_session(upload["session_id"])
+        self.assertEqual(recovered["status"], "promoted")
+        self.assertEqual(recovered["files"], [])
+        self.assertEqual(recovered["inspection_metadata"], {})
+        self.assertEqual(recovered["name"], "")
+        self.assertEqual(recovered["style_id"], "")
+        self.assertEqual(recovered["provider"], "")
+        self.assertEqual(recovered["prompt"], "")
+        self.assertIsNone(recovered["intent_interpretation"])
+        self.assertIsNone(recovered["recipe_match"])
+        self.assertEqual(recovered["target_duration_seconds"], 0)
+        self.assertIsNone(recovered["draft_id"])
+        self.assertFalse(staged_dir.exists())
+        self.assertEqual(promoted.read_bytes(), b"private-media")
+
+    def test_restart_removes_incomplete_promotion_but_keeps_retryable_staging(self):
+        style = self.store.list_styles()[0]
+        upload = self.store.create_upload_session(
+            "Incomplete promotion", style["style_id"], "pegasus", "Make a cut", 20,
+            device_id="test-device",
+        )
+        staged_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        staged_dir.mkdir(parents=True)
+        staged = staged_dir / "001-clip.mov"
+        staged.write_bytes(b"retryable-media")
+        project_id = "project-20260903-badbad"
+        project_dir = self.store.project_dir(project_id)
+        project_dir.mkdir(parents=True)
+        self.store.write_json(project_dir / "manifest.json", {
+            "project_id": project_id, "style_id": style["style_id"],
+            "status": "footage_uploaded", "raw_files": [], "runs": [],
+        })
+        self.store.update_upload_session(
+            upload["session_id"], status="promoting", project_id=project_id,
+            files=[{"original_name": "clip.mov", "stored_path": str(staged.relative_to(self.store.data_dir))}],
+        )
+
+        main_module.recover_interrupted_jobs()
+
+        recovered = self.store.upload_session(upload["session_id"])
+        self.assertEqual(recovered["status"], "ready_for_brief")
+        self.assertIsNone(recovered["project_id"])
+        self.assertEqual(staged.read_bytes(), b"retryable-media")
+        self.assertFalse(project_dir.exists())
+
+    def test_restart_does_not_rewrite_an_already_scrubbed_promoted_session(self):
+        upload = self.store.create_upload_session(
+            "Completed promotion", self.store.list_styles()[0]["style_id"],
+            "pegasus", "Make a cut", 20, device_id="test-device",
+        )
+        completed = self.store.update_upload_session(
+            upload["session_id"], status="promoted", project_id=self.project_id,
+            files=[], inspection_metadata={}, name="", style_id="", provider="",
+            prompt="", intent_interpretation=None, recipe_match=None,
+            target_duration_seconds=0, total_duration_seconds=0, draft_id=None,
+        )
+
+        main_module.recover_interrupted_jobs()
+
+        recovered = self.store.upload_session(upload["session_id"])
+        self.assertEqual(recovered["updated_at"], completed["updated_at"])
+
+    def test_timeline_job_failure_does_not_persist_raw_exception_text(self):
+        self.store.update_project(
+            self.project_id, status="approval_running", job_return_status="timeline_ready",
+        )
+
+        main_module.fail_timeline_job(
+            self.store, self.project_id,
+            RuntimeError("private.mov access-code-123 private creative prompt"),
+        )
+
+        saved = self.store.project(self.project_id)
+        serialized = json.dumps(saved)
+        self.assertEqual(saved["last_error_details"]["code"], "timeline_task_failed")
+        for forbidden in ("private.mov", "access-code-123", "private creative prompt"):
+            self.assertNotIn(forbidden, serialized)
 
     def test_retired_analyzer_first_pages_only_redirect(self):
         for suffix in ("analysis", "analysis-progress", "analysis-review", "rough-cut", "rough-cut-progress"):
@@ -235,18 +498,32 @@ class CanonicalUIFlowTests(unittest.TestCase):
         response = self.client.post("/styles/%s/approve" % candidate["style_id"])
         self.assertEqual(response.status_code, 403)
 
+    def test_active_project_and_recipe_cannot_be_deleted_mid_job(self):
+        self.store.update_project(self.project_id, status="exporting")
+        project_response = self.client.post("/projects/%s/delete" % self.project_id)
+        self.assertEqual(project_response.status_code, 409)
+        self.assertEqual(self.store.project(self.project_id)["status"], "exporting")
+
+        style = self.store.create_style("Busy recipe", [], {})
+        self.store.update_style(style["style_id"], status="analyzing_references")
+        style_response = self.client.post("/styles/%s/delete" % style["style_id"])
+        self.assertEqual(style_response.status_code, 409)
+        self.assertEqual(self.store.style(style["style_id"])["status"], "analyzing_references")
+
     def test_project_private_recipe_is_isolated_to_its_device(self):
         private = self.store.create_style("Private references", [], {})
         self.store.update_style(private["style_id"], project_private=True, device_id="first-device")
-        self.set_session(owner=False, device_id="second-device")
-        response = self.client.get("/styles/%s" % private["style_id"])
-        self.assertEqual(response.status_code, 404)
+        local_without_access_code = replace(settings, access_code="")
+        with patch.object(main_module, "settings", local_without_access_code):
+            self.set_session(owner=False, device_id="second-device")
+            response = self.client.get("/styles/%s" % private["style_id"])
+            self.assertEqual(response.status_code, 404)
 
-        # Owner governance applies to shared recipes, not another device's
-        # project-private reference recipe.
-        self.set_session(owner=True, device_id="second-device")
-        response = self.client.get("/styles/%s" % private["style_id"])
-        self.assertEqual(response.status_code, 404)
+            # Owner governance applies to shared recipes, not another device's
+            # project-private reference recipe.
+            self.set_session(owner=True, device_id="second-device")
+            response = self.client.get("/styles/%s" % private["style_id"])
+            self.assertEqual(response.status_code, 404)
 
     def test_hosted_shared_workspace_uses_one_private_identity(self):
         hosted = replace(
@@ -312,6 +589,168 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertIn("1 video saved", response.text)
         self.assertIn("Choose the remaining videos", response.text)
         self.assertIn('data-session-id="%s"' % upload["session_id"], response.text)
+        self.assertIn("request.send(file)", response.text)
+        self.assertIn("X-PBJ-Filename", response.text)
+        self.assertIn("if(error.retryable", response.text)
+        self.assertNotIn("body.append('footage'", response.text)
+
+    def test_upload_resume_requires_the_exact_project_draft(self):
+        original_style_id = self.store.list_styles()[0]["style_id"]
+        other_style = self.store.create_style("Other recipe", [], {})
+        self.store.update_style(
+            other_style["style_id"],
+            recipe={"summary": "Another direction", "rules": []},
+            style_analysis={"summary": "Another direction", "rules": []},
+            recipe_version="1.0.0", recipe_status="validated",
+            approval={"approved": True, "approved_at": "now"},
+        )
+        mismatches = (
+            ("Different name", "Make a short edit", original_style_id),
+            ("Resume test", "Make a completely different edit", original_style_id),
+            ("Resume test", "Make a short edit", other_style["style_id"]),
+        )
+        for name, prompt, draft_style_id in mismatches:
+            with self.subTest(name=name, prompt=prompt, style_id=draft_style_id):
+                self.client.cookies.clear()
+                upload = self.store.create_upload_session(
+                    "Resume test", original_style_id, "pegasus", "Make a short edit", 20,
+                    device_id="test-device",
+                )
+                session = {
+                    "authorized": True, "owner": True, "device_id": "test-device",
+                    "active_upload_session_id": upload["session_id"],
+                    "project_draft": {
+                        "name": name, "description": prompt, "style_id": draft_style_id,
+                    },
+                }
+                signed = TimestampSigner(settings.session_secret).sign(
+                    b64encode(json.dumps(session).encode())
+                ).decode()
+                self.client.cookies.set("session", signed)
+
+                response = self.client.get("/projects/new/footage")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn('data-session-id="%s"' % upload["session_id"], response.text)
+                # Changing the draft back to a match must not revive the stale
+                # pointer; the first request cleared it from the browser session.
+                self.client.post(
+                    "/projects/new/describe",
+                    data={"name": "Resume test", "description": "Make a short edit"},
+                    follow_redirects=False,
+                )
+                revisited = self.client.get("/projects/new/footage")
+                self.assertNotIn('data-session-id="%s"' % upload["session_id"], revisited.text)
+
+        self.client.cookies.clear()
+        upload = self.store.create_upload_session(
+            "Resume test", original_style_id, "pegasus", "Make a short edit", 20,
+            device_id="test-device", draft_id="draft-old",
+        )
+        session = {
+            "authorized": True, "owner": True, "device_id": "test-device",
+            "active_upload_session_id": upload["session_id"],
+            "project_draft": {
+                "draft_id": "draft-new", "name": "Resume test",
+                "description": "Make a short edit", "style_id": original_style_id,
+            },
+        }
+        signed = TimestampSigner(settings.session_secret).sign(
+            b64encode(json.dumps(session).encode())
+        ).decode()
+        self.client.cookies.set("session", signed)
+        response = self.client.get("/projects/new/footage")
+        self.assertNotIn('data-session-id="%s"' % upload["session_id"], response.text)
+
+    def test_new_project_action_rotates_draft_identity_even_for_the_same_brief(self):
+        old_draft_id = "draft-old"
+        upload = self.store.create_upload_session(
+            "New Project", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device", draft_id=old_draft_id,
+        )
+        session = {
+            "authorized": True, "owner": True, "device_id": "test-device",
+            "active_upload_session_id": upload["session_id"],
+            "project_draft": {
+                "draft_id": old_draft_id, "name": "New Project",
+                "description": "Make a short edit", "style_id": "",
+            },
+        }
+        signed = TimestampSigner(settings.session_secret).sign(
+            b64encode(json.dumps(session).encode())
+        ).decode()
+        self.client.cookies.set("session", signed)
+
+        fresh = self.client.post("/projects/new/fresh", follow_redirects=False)
+        self.assertEqual(fresh.status_code, 303)
+        self.assertEqual(fresh.headers["location"], "/projects/new")
+        describe = self.client.get("/projects/new")
+        self.assertNotIn("Make a short edit", describe.text)
+        self.client.post(
+            "/projects/new/describe",
+            data={"name": "New Project", "description": "Make a short edit"},
+            follow_redirects=False,
+        )
+        created = self.client.post("/projects/upload-session", data={
+            "name": "New Project", "prompt": "Make a short edit", "style_id": "",
+        })
+
+        self.assertEqual(created.status_code, 200)
+        new_session = self.store.upload_session(created.json()["session_id"])
+        self.assertNotEqual(new_session["draft_id"], old_draft_id)
+        self.assertNotEqual(new_session["session_id"], upload["session_id"])
+
+    def test_new_project_get_cannot_clear_an_existing_draft(self):
+        session = {
+            "authorized": True, "owner": True, "device_id": "test-device",
+            "active_upload_session_id": "upload-kept",
+            "project_draft": {
+                "draft_id": "draft-kept", "name": "Keep me",
+                "description": "Keep this saved brief", "style_id": "",
+            },
+        }
+        signed = TimestampSigner(settings.session_secret).sign(
+            b64encode(json.dumps(session).encode())
+        ).decode()
+        self.client.cookies.set("session", signed)
+
+        response = self.client.get(
+            "/projects/new?fresh=1",
+            headers={"Sec-Fetch-Site": "cross-site"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Keep this saved brief", response.text)
+
+    def test_promoted_upload_pointer_is_cleared_instead_of_reused(self):
+        style_id = self.store.list_styles()[0]["style_id"]
+        upload = self.store.create_upload_session(
+            "Completed draft", style_id, "pegasus", "Make a short edit", 20,
+            device_id="test-device",
+        )
+        self.store.update_upload_session(
+            upload["session_id"], status="promoted", project_id=self.project_id,
+        )
+        session = {
+            "authorized": True, "owner": True, "device_id": "test-device",
+            "active_upload_session_id": upload["session_id"],
+            "project_draft": {
+                "name": "Completed draft", "description": "Make a short edit",
+                "style_id": style_id,
+            },
+        }
+        signed = TimestampSigner(settings.session_secret).sign(
+            b64encode(json.dumps(session).encode())
+        ).decode()
+        self.client.cookies.set("session", signed)
+
+        response = self.client.get("/projects/new/footage")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('data-session-id="%s"' % upload["session_id"], response.text)
+        self.store.update_upload_session(upload["session_id"], status="uploading", project_id=None)
+        revisited = self.client.get("/projects/new/footage")
+        self.assertNotIn('data-session-id="%s"' % upload["session_id"], revisited.text)
 
     def test_upload_retry_does_not_duplicate_a_completed_file(self):
         upload = self.store.create_upload_session(
@@ -319,13 +758,466 @@ class CanonicalUIFlowTests(unittest.TestCase):
             "Make a short edit", 20, device_id="test-device",
         )
         endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
-        first = self.client.post(endpoint, files={"footage": ("clip.mov", b"video-bytes", "video/quicktime")})
-        second = self.client.post(endpoint, files={"footage": ("clip.mov", b"video-bytes", "video/quicktime")})
+        headers = {"X-PBJ-Filename": "clip.mov", "Content-Type": "video/quicktime"}
+        first = self.client.post(endpoint, content=b"video-bytes", headers=headers)
+        second = self.client.post(endpoint, content=b"video-bytes", headers=headers)
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.json()["uploaded_files"], 1)
+        saved = self.store.upload_session(upload["session_id"])["files"]
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0]["sha256"], "79fd615a866fe7f9eb4da8d9c41ab57e3bd48056df42fd2c13e4d461a87afbe3")
+
+    def test_stable_upload_id_retries_without_rewriting_a_full_batch(self):
+        upload = self.store.create_upload_session(
+            "Retry identity", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
+        headers = {
+            "X-PBJ-Filename": "clip.mov", "X-PBJ-Upload-ID": "upload-stable-123",
+            "Content-Type": "video/quicktime",
+        }
+        limited = replace(settings, max_upload_batch_bytes=10)
+
+        with patch.object(main_module, "settings", limited):
+            first = self.client.post(endpoint, content=b"0123456789", headers=headers)
+            retry = self.client.post(endpoint, content=b"0123456789", headers=headers)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(retry.status_code, 200)
         self.assertEqual(len(self.store.upload_session(upload["session_id"])["files"]), 1)
+
+    def test_small_network_chunks_are_batched_before_disk_thread_writes(self):
+        upload = self.store.create_upload_session(
+            "Buffered upload", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
+        chunk = b"x" * 4096
+        chunk_count = 384
+        original_to_thread = asyncio.to_thread
+        disk_write_sizes = []
+
+        async def body():
+            for _ in range(chunk_count):
+                yield chunk
+
+        async def track_to_thread(function, *args, **kwargs):
+            if getattr(function, "__name__", "") == "write":
+                disk_write_sizes.append(len(args[0]))
+            return await original_to_thread(function, *args, **kwargs)
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=main_module.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"session": self.client.cookies.get("session")},
+            ) as client:
+                return await client.post(endpoint, content=body(), headers={
+                    "Content-Length": str(len(chunk) * chunk_count),
+                    "X-PBJ-Filename": "chunked.mov",
+                    "X-PBJ-Upload-ID": "upload-chunked-123",
+                })
+
+        with patch.object(main_module.asyncio, "to_thread", side_effect=track_to_thread):
+            response = asyncio.run(exercise())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            disk_write_sizes,
+            [main_module.UPLOAD_WRITE_BUFFER_BYTES, len(chunk) * 128],
+        )
+        self.assertLessEqual(max(disk_write_sizes), main_module.UPLOAD_WRITE_BUFFER_BYTES)
+        saved = self.store.upload_session(upload["session_id"])["files"][0]
+        self.assertEqual(saved["size_bytes"], len(chunk) * chunk_count)
+        self.assertEqual(saved["sha256"], hashlib.sha256(chunk * chunk_count).hexdigest())
+
+    def test_upload_reservation_prevents_overcommit_and_early_completion(self):
+        upload = self.store.create_upload_session(
+            "Reservation", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
+        limited = replace(settings, max_upload_batch_bytes=10)
+
+        async def exercise():
+            started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def slow_body():
+                started.set()
+                await release.wait()
+                yield b"1234567"
+
+            transport = httpx.ASGITransport(app=main_module.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"session": self.client.cookies.get("session")},
+            ) as client:
+                first_task = asyncio.create_task(client.post(
+                    endpoint, content=slow_body(), headers={
+                        "Content-Length": "7", "X-PBJ-Filename": "first.mov",
+                        "X-PBJ-Upload-ID": "upload-first-123",
+                    },
+                ))
+                await started.wait()
+                second = await client.post(endpoint, content=b"7654321", headers={
+                    "Content-Length": "7", "X-PBJ-Filename": "second.mov",
+                    "X-PBJ-Upload-ID": "upload-second-123",
+                })
+                completion = await client.post(
+                    "/projects/upload-session/%s/complete" % upload["session_id"],
+                )
+                release.set()
+                first = await first_task
+                return first, second, completion
+
+        with patch.object(main_module, "settings", limited):
+            first, second, completion = asyncio.run(exercise())
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 413)
+        self.assertEqual(completion.status_code, 409)
+        self.assertNotIn(upload["session_id"], main_module.upload_reserved_bytes)
+
+    def test_same_name_and_size_with_different_content_are_distinct_uploads(self):
+        upload = self.store.create_upload_session(
+            "Identity test", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        endpoint = "/projects/upload-session/%s/file" % upload["session_id"]
+        headers = {"X-PBJ-Filename": "clip.mov", "Content-Type": "video/quicktime"}
+
+        first = self.client.post(endpoint, content=b"first-bytes!", headers=headers)
+        second = self.client.post(endpoint, content=b"other-bytes!", headers=headers)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        files = self.store.upload_session(upload["session_id"])["files"]
+        self.assertEqual(len(files), 2)
+        self.assertNotEqual(files[0]["sha256"], files[1]["sha256"])
+
+    def test_upload_rejects_declared_batch_over_limit_before_writing_body(self):
+        upload = self.store.create_upload_session(
+            "Limit test", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        self.store.update_upload_session(upload["session_id"], files=[{
+            "file_id": "raw-001", "original_name": "saved.mov",
+            "stored_path": "upload_sessions/placeholder/raw/saved.mov",
+            "size_bytes": settings.max_upload_batch_bytes,
+            "sha256": "a" * 64,
+        }])
+
+        response = self.client.post(
+            "/projects/upload-session/%s/file" % upload["session_id"],
+            content=b"x",
+            headers={"X-PBJ-Filename": "extra.mov", "Content-Type": "video/quicktime"},
+        )
+
+        self.assertEqual(response.status_code, 413)
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        self.assertFalse(raw_dir.exists())
+
+    def test_upload_completion_inspects_with_bounded_parallelism_and_rejects_late_file(self):
+        upload = self.store.create_upload_session(
+            "Parallel inspection", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        raw_dir.mkdir(parents=True)
+        files = []
+        for index in range(4):
+            path = raw_dir / ("%03d-video.mov" % (index + 1))
+            path.write_bytes(b"video")
+            files.append({
+                "file_id": "raw-%03d" % (index + 1), "original_name": path.name,
+                "stored_path": str(path.relative_to(self.store.data_dir)),
+                "size_bytes": path.stat().st_size, "sha256": "a" * 64,
+            })
+        self.store.update_upload_session(upload["session_id"], files=files)
+
+        def slow_inspection(_path):
+            time.sleep(0.1)
+            return {"duration_seconds": 5, "has_audio": True}
+
+        started = time.perf_counter()
+        with patch.object(main_module, "inspect_video", side_effect=slow_inspection):
+            response = self.client.post("/projects/upload-session/%s/complete" % upload["session_id"])
+        elapsed = time.perf_counter() - started
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(elapsed, 0.35)
+        late = self.client.post(
+            "/projects/upload-session/%s/file" % upload["session_id"], content=b"late",
+            headers={"X-PBJ-Filename": "late.mov", "Content-Type": "video/quicktime"},
+        )
+        self.assertEqual(late.status_code, 409)
+        self.assertEqual(
+            self.client.post("/projects/upload-session/%s/complete" % upload["session_id"]).status_code,
+            200,
+        )
+
+    def test_failed_inspection_removes_only_bad_staging_and_batch_can_retry(self):
+        upload = self.store.create_upload_session(
+            "Recover inspection", self.store.list_styles()[0]["style_id"], "pegasus",
+            "Make a short edit", 20, device_id="test-device",
+        )
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        raw_dir.mkdir(parents=True)
+        bad = raw_dir / "001-clip.mov"
+        good = raw_dir / "002-clip.mov"
+        good.write_bytes(b"good-video")
+        bad.write_bytes(b"bad-video")
+        files = [{
+            "file_id": "raw-%03d" % index,
+            "original_name": "clip.mov",
+            "stored_path": str(path.relative_to(self.store.data_dir)),
+            "size_bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        } for index, path in enumerate((bad, good), start=1)]
+        self.store.update_upload_session(upload["session_id"], files=files)
+
+        def inspect_with_one_failure(path):
+            if path.name == bad.name:
+                return {"inspection_error": "media_inspection_failed"}
+            return {"duration_seconds": 5, "has_audio": True}
+
+        endpoint = "/projects/upload-session/%s/complete" % upload["session_id"]
+        with patch.object(main_module, "inspect_video", side_effect=inspect_with_one_failure):
+            rejected = self.client.post(endpoint)
+
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(
+            rejected.json()["detail"],
+            "PBJ removed 1 video it could not read. Your other 1 video remains saved; "
+            "choose a replacement and try again.",
+        )
+        saved = self.store.upload_session(upload["session_id"])
+        self.assertEqual(saved["status"], "uploading")
+        self.assertEqual([item["file_id"] for item in saved["files"]], ["raw-002"])
+        self.assertTrue(good.exists())
+        self.assertFalse(bad.exists())
+
+        replacement = self.client.post(
+            "/projects/upload-session/%s/file" % upload["session_id"],
+            content=b"replacement-video",
+            headers={
+                "X-PBJ-Filename": "clip.mov",
+                "X-PBJ-Upload-ID": "upload-replacement-123",
+            },
+        )
+        self.assertEqual(replacement.status_code, 200)
+        saved = self.store.upload_session(upload["session_id"])
+        self.assertEqual([item["file_id"] for item in saved["files"]], ["raw-002", "raw-003"])
+        self.assertEqual(len({item["stored_path"] for item in saved["files"]}), 2)
+        self.assertEqual(good.read_bytes(), b"good-video")
+
+        with patch.object(
+            main_module, "inspect_video",
+            return_value={"duration_seconds": 5, "has_audio": True},
+        ):
+            retried = self.client.post(endpoint)
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(self.store.upload_session(upload["session_id"])["status"], "ready_for_brief")
+
+    def test_media_inspection_limit_is_global_across_upload_sessions(self):
+        uploads = []
+        for session_index in range(2):
+            upload = self.store.create_upload_session(
+                "Global inspection %d" % session_index,
+                self.store.list_styles()[0]["style_id"], "pegasus",
+                "Make a short edit", 20, device_id="test-device",
+            )
+            raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+            raw_dir.mkdir(parents=True)
+            files = []
+            for file_index in range(2):
+                path = raw_dir / ("%03d-video.mov" % (file_index + 1))
+                path.write_bytes(b"video")
+                files.append({
+                    "file_id": "raw-%03d" % (file_index + 1),
+                    "original_name": path.name,
+                    "stored_path": str(path.relative_to(self.store.data_dir)),
+                    "size_bytes": path.stat().st_size,
+                    "sha256": "%064d" % (session_index * 2 + file_index),
+                })
+            self.store.update_upload_session(upload["session_id"], files=files)
+            uploads.append(upload)
+
+        tracking_lock = Lock()
+        active = 0
+        max_active = 0
+
+        def slow_inspection(_path):
+            nonlocal active, max_active
+            with tracking_lock:
+                active += 1
+                max_active = max(max_active, active)
+            try:
+                time.sleep(0.05)
+                return {"duration_seconds": 5, "has_audio": True}
+            finally:
+                with tracking_lock:
+                    active -= 1
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=main_module.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"session": self.client.cookies.get("session")},
+            ) as client:
+                return await asyncio.gather(*(
+                    client.post(
+                        "/projects/upload-session/%s/complete" % upload["session_id"],
+                    )
+                    for upload in uploads
+                ))
+
+        with patch.object(main_module, "inspect_video", side_effect=slow_inspection):
+            responses = asyncio.run(exercise())
+
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        self.assertEqual(max_active, 2)
+
+    def test_repeated_project_finish_creates_and_queues_only_one_project(self):
+        style_id = self.store.list_styles()[0]["style_id"]
+        upload = self.store.create_upload_session(
+            "One project", style_id, "pegasus", "Make a short chronological cut", 20,
+            device_id="test-device",
+        )
+        raw_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        raw_dir.mkdir(parents=True)
+        source = raw_dir / "001-clip.mov"
+        source.write_bytes(b"project-source")
+        self.store.update_upload_session(
+            upload["session_id"], status="ready_for_brief",
+            files=[{
+                "file_id": "raw-001", "original_name": "clip.mov",
+                "stored_path": str(source.relative_to(self.store.data_dir)),
+                "size_bytes": source.stat().st_size,
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            }],
+            inspection_metadata={str(source): {"duration_seconds": 10, "has_audio": True}},
+            total_duration_seconds=10,
+        )
+        before = {item["project_id"] for item in self.store.list_projects()}
+        original_create = self.store.create_project
+
+        def slow_create(*args, **kwargs):
+            time.sleep(0.1)
+            return original_create(*args, **kwargs)
+
+        async def no_op(_project_id):
+            return None
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=main_module.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"session": self.client.cookies.get("session")},
+                follow_redirects=False,
+            ) as client:
+                return await asyncio.gather(
+                    client.post("/projects/new/brief", data={"session_id": upload["session_id"]}),
+                    client.post("/projects/new/brief", data={"session_id": upload["session_id"]}),
+                )
+
+        with (
+            patch.dict("os.environ", {"OPENAI_API_KEY": "test", "TWELVE_LABS_API_KEY": "test"}),
+            patch.object(self.store, "create_project", side_effect=slow_create),
+            patch.object(main_module, "_run_complete_production", new=no_op),
+        ):
+            responses = asyncio.run(exercise())
+
+        self.assertTrue(all(response.status_code in (303, 409) for response in responses))
+        self.assertIn(303, [response.status_code for response in responses])
+        created = {item["project_id"] for item in self.store.list_projects()} - before
+        self.assertEqual(len(created), 1)
+        saved_session = self.store.upload_session(upload["session_id"])
+        self.assertEqual(saved_session["status"], "promoted")
+        self.assertEqual(saved_session["project_id"], next(iter(created)))
+        self.assertEqual(saved_session["files"], [])
+
+    def test_failed_promotion_commit_stays_retryable_without_starting_work(self):
+        style_id = self.store.list_styles()[0]["style_id"]
+        upload = self.store.create_upload_session(
+            "Commit recovery", style_id, "pegasus", "Make a short cut", 20,
+            device_id="test-device",
+        )
+        staged_dir = self.store.upload_session_dir(upload["session_id"]) / "raw"
+        staged_dir.mkdir(parents=True)
+        staged = staged_dir / "001-clip.mov"
+        staged.write_bytes(b"promotion-source")
+        self.store.update_upload_session(
+            upload["session_id"], status="ready_for_brief",
+            files=[{
+                "file_id": "raw-001", "original_name": "clip.mov",
+                "stored_path": str(staged.relative_to(self.store.data_dir)),
+                "size_bytes": staged.stat().st_size,
+                "sha256": hashlib.sha256(staged.read_bytes()).hexdigest(),
+            }],
+            inspection_metadata={str(staged): {"duration_seconds": 10, "has_audio": True}},
+            total_duration_seconds=10,
+        )
+        before = {item["project_id"] for item in self.store.list_projects()}
+        original_update = self.store.update_upload_session
+        promotion_commits = 0
+        background_runs = 0
+
+        def fail_first_promotion_commit(session_id, **changes):
+            nonlocal promotion_commits
+            if changes.get("status") == "promoted":
+                promotion_commits += 1
+                if promotion_commits == 1:
+                    raise OSError("simulated manifest commit failure")
+            return original_update(session_id, **changes)
+
+        async def should_not_run(_project_id):
+            nonlocal background_runs
+            background_runs += 1
+
+        with (
+            patch.dict("os.environ", {"OPENAI_API_KEY": "test", "TWELVE_LABS_API_KEY": "test"}),
+            patch.object(self.store, "update_upload_session", side_effect=fail_first_promotion_commit),
+            patch.object(main_module, "_run_complete_production", new=should_not_run),
+        ):
+            with self.assertRaises(OSError):
+                self.client.post(
+                    "/projects/new/brief", data={"session_id": upload["session_id"]},
+                )
+
+        created = {item["project_id"] for item in self.store.list_projects()} - before
+        self.assertEqual(len(created), 1)
+        project_id = next(iter(created))
+        self.assertEqual(background_runs, 0)
+        self.assertEqual(self.store.project(project_id)["status"], "analysis_failed")
+        interrupted = self.store.upload_session(upload["session_id"])
+        self.assertEqual(interrupted["status"], "promoting")
+        self.assertEqual(interrupted["project_id"], project_id)
+        self.assertEqual(staged.read_bytes(), b"promotion-source")
+        self.assertFalse(any(
+            item.get("source_key") == "raw:%s" % project_id
+            for item in self.store.list_learning_signals(style_id)
+        ))
+
+        retry = self.client.get(
+            "/projects/new/brief", params={"session_id": upload["session_id"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(retry.status_code, 303)
+        recovered = self.store.upload_session(upload["session_id"])
+        self.assertEqual(recovered["status"], "promoted")
+        self.assertEqual(recovered["files"], [])
+        self.assertFalse(staged_dir.exists())
+        raw = self.store.project(project_id)["raw_files"][0]
+        self.assertEqual(raw["original_name"], "clip.mov")
+        self.assertEqual(Path(raw["stored_path"]).name, "001-clip.mov")
+        self.assertEqual(
+            self.store.resolve_data_path(raw["stored_path"]).read_bytes(), b"promotion-source",
+        )
 
     def test_health_stays_responsive_while_uploaded_media_is_inspected(self):
         upload = self.store.create_upload_session(
@@ -376,6 +1268,35 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertIn("if(response.ok&&contentType.includes('text/html'))", response.text)
         self.assertNotIn("location.reload()", response.text)
 
+    def test_project_cards_use_canonical_render_and_status_fields(self):
+        self.store.update_project(self.project_id, status="exporting")
+        working = self.client.get("/projects")
+        self.assertEqual(working.status_code, 200)
+        self.assertIn("Rendered cut", working.text)
+        self.assertIn("Working", working.text)
+        self.assertNotIn("2 timelines", working.text)
+
+        self.store.update_project(self.project_id, status="export_failed")
+        failed = self.client.get("/projects")
+        self.assertIn("Attention", failed.text)
+
+        self.store.update_project(self.project_id, status="timeline_ready")
+        ready = self.client.get("/projects")
+        self.assertIn("Ready", ready.text)
+
+    def test_versioned_ui_css_has_a_working_cache_validator(self):
+        first = self.client.get("/ui.css?v=22")
+        self.assertEqual(first.status_code, 200)
+        self.assertGreater(len(first.content), 0)
+        self.assertIn("max-age=3600", first.headers["cache-control"])
+        self.assertTrue(first.headers["etag"])
+        self.assertNotIn("set-cookie", first.headers)
+        self.assertNotIn("vary", first.headers)
+
+        cached = self.client.get("/ui.css?v=22", headers={"If-None-Match": first.headers["etag"]})
+        self.assertEqual(cached.status_code, 304)
+        self.assertEqual(cached.content, b"")
+
     def test_client_diagnostics_store_only_allowlisted_private_fields(self):
         response = self.client.post("/diagnostics/client", json={
             "event": "upload_failed",
@@ -390,6 +1311,9 @@ class CanonicalUIFlowTests(unittest.TestCase):
             "prompt": "a private creative direction",
             "access_code": "never-store-this",
             "raw_error": "sensitive stack trace",
+            "user_agent": "secret-from-user-agent",
+            "client_recorded_at": "prompt-like-client-time",
+            "connection_type": "private-connection-secret",
         })
 
         self.assertEqual(response.status_code, 204)
@@ -399,7 +1323,11 @@ class CanonicalUIFlowTests(unittest.TestCase):
         self.assertEqual(saved["file_index"], 2)
         self.assertEqual(saved["error_code"], "xhr_network")
         self.assertIsNone(saved["connection_type"])
-        for forbidden in ("private-vacation.mov", "private creative direction", "never-store-this", "sensitive stack trace"):
+        for forbidden in (
+            "private-vacation.mov", "private creative direction", "never-store-this",
+            "sensitive stack trace", "secret-from-user-agent", "prompt-like-client-time",
+            "private-connection-secret",
+        ):
             self.assertNotIn(forbidden, log_text)
 
         download = self.client.get("/diagnostics/download")

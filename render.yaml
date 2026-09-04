@@ -8,7 +8,8 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 300
     envVars:
       - key: APP_DATA_DIR
         value: /tmp/pbj-data
