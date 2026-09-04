@@ -29,7 +29,7 @@ class HostedDemoConfigTests(unittest.TestCase):
     def test_launcher_and_main_share_only_narrow_demo_secrets(self):
         blueprint = (ROOT / "render.yaml").read_text()
         self.assertIn("value: https://pbnj-launcher.onrender.com", blueprint)
-        self.assertIn("value: \"900\"", blueprint)
+        self.assertIn("value: \"600\"", blueprint)
         self.assertEqual(blueprint.count("envVarKey: PBJ_ACCESS_CODE"), 1)
         self.assertEqual(blueprint.count("envVarKey: PBJ_DEMO_CONTROL_TOKEN"), 1)
 

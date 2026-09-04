@@ -28,7 +28,7 @@ services:
       - key: PBJ_DEMO_CONTROLLER_URL
         value: https://pbnj-launcher.onrender.com
       - key: PBJ_DEMO_IDLE_SECONDS
-        value: "900"
+        value: "600"
       - key: PBJ_DEMO_CONTROL_TOKEN
         generateValue: true
       - key: PBJ_AGENT_MODEL

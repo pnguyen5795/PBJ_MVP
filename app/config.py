@@ -55,7 +55,7 @@ class Settings:
     demo_lifecycle_enabled: bool = field(default_factory=lambda: env_flag("PBJ_DEMO_LIFECYCLE_ENABLED"))
     demo_controller_url: str = os.getenv("PBJ_DEMO_CONTROLLER_URL", "").strip()
     demo_control_token: str = os.getenv("PBJ_DEMO_CONTROL_TOKEN", "")
-    demo_idle_seconds: int = field(default_factory=lambda: env_int("PBJ_DEMO_IDLE_SECONDS", 900))
+    demo_idle_seconds: int = field(default_factory=lambda: env_int("PBJ_DEMO_IDLE_SECONDS", 600))
 
     def __post_init__(self) -> None:
         # RENDER is a read-only platform marker. A missing, false, or malformed
