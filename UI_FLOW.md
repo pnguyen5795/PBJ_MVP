@@ -10,7 +10,7 @@ The `troy-facelift` branch uses the approved Troy iPhone screen compositions doc
 ## Current project journey
 
 ```text
-Demo launcher (hosted only) → Private access → Home → Describe → Optional references → Raw footage
+Private access → Home → Describe → Optional references → Raw footage
   → Final details → Analyze, plan, validate, and render → Rough cut review
   → Approve OR request changes → Replan and render a new version
 ```
@@ -21,7 +21,6 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 
 | State | Canonical route | Required outcome |
 |---|---|---|
-| Demo launcher | Launcher `/` and `/start` | In hosted-demo mode, accept the same exact private code, ask Render to resume PBJ, show truthful startup progress, and open the PBJ URL only after its public health check succeeds. The Render credential must never reach the browser. |
 | Private access | `/access` | Authorize the browser for seven days with an exact code. In hosted-demo mode, authorized browsers enter the same private workspace. Repeated failures are throttled. |
 | Home | `/` | Resume work or start a project. |
 | Workspace controls | `/more` | Reach projects/operator tools and explicitly log out. |
@@ -57,7 +56,6 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - `POST /diagnostics/client` accepts only allowlisted, bounded operational fields; `/diagnostics/download` requires owner access and never contains filenames, media, prompts, credentials, or raw exception text.
 - `POST /logout` clears access, owner privilege, the current draft, and upload pointers; local mode preserves only the device identity needed to find that device's projects after signing in again.
 - Hosted state-changing requests must come from the same origin. Access/owner form bodies are rejected above 1 KiB before parsing; project names, descriptions, and the complete prospective signed session are bounded so accepted cookies remain below 4 KiB. The Home Screen shell requires a network connection and does not register a service worker or retain an offline cache. When an older installation reconnects, current pages unregister the retired worker and delete only its legacy `pbj-shell-*` cache.
-- Visible authorized PBJ pages report activity at a bounded interval. After 10 minutes without visible activity, PBJ may request suspension through the separate launcher only when no request, upload inspection/promotion, project or recipe job, export, deletion, FFprobe, or FFmpeg process remains active. Health checks and automatic progress polling do not count as user activity. A suspended demo is reopened from the launcher, not directly from the PBJ URL.
 
 ## Current boundaries
 
@@ -71,6 +69,6 @@ PBJ creates a validated structured timeline and automatically renders it with FF
 - The shared shell has no persistent bottom navigation bar.
 - Every sequential screen has an obvious Back action and one context-specific primary action where truthful.
 - Local mode keeps projects isolated to their originating device. Explicit hosted-demo mode maps every authorized browser to one shared private workspace; it is not a multi-user beta.
-- The hosted demo runs on a 1 CPU / 2 GB Render web service but still uses disposable storage: project media and results may vanish after suspension, restarts, or redeploys. Important projects require the later persistent-storage upgrade.
+- The hosted demo runs on a 1 CPU / 2 GB Render web service but still uses disposable storage: project media and results may vanish after manual suspension, restarts, or redeploys. The owner resumes and suspends the service in the Render Dashboard; PBJ has no automatic service lifecycle controls. Important projects require the later persistent-storage upgrade.
 
 Any intentional flow change requires matching updates to this file, `PROJECT_PLAN.md`, live routes/templates, and route-contract tests.

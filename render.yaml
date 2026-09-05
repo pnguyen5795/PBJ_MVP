@@ -23,14 +23,6 @@ services:
         value: "true"
       - key: PBJ_LOW_MEMORY_MODE
         value: "true"
-      - key: PBJ_DEMO_LIFECYCLE_ENABLED
-        value: "true"
-      - key: PBJ_DEMO_CONTROLLER_URL
-        value: https://pbnj-launcher.onrender.com
-      - key: PBJ_DEMO_IDLE_SECONDS
-        value: "600"
-      - key: PBJ_DEMO_CONTROL_TOKEN
-        generateValue: true
       - key: PBJ_AGENT_MODEL
         value: gpt-5.6-luna
       - key: PBJ_EDITING_AGENT_MODEL
@@ -52,34 +44,4 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: TWELVE_LABS_API_KEY
-        sync: false
-  - type: web
-    name: pbnj-launcher
-    runtime: python
-    region: oregon
-    plan: free
-    branch: codex/hosted-demo
-    rootDir: launcher
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --no-server-header
-    healthCheckPath: /health
-    autoDeployTrigger: checksPass
-    envVars:
-      - key: PBJ_TARGET_SERVICE_ID
-        value: srv-dacba3afngtc73cq6hm0
-      - key: PBJ_TARGET_URL
-        value: https://pbnj.onrender.com
-      - key: PBJ_ACCESS_CODE
-        fromService:
-          name: pbnj
-          type: web
-          envVarKey: PBJ_ACCESS_CODE
-      - key: PBJ_DEMO_CONTROL_TOKEN
-        fromService:
-          name: pbnj
-          type: web
-          envVarKey: PBJ_DEMO_CONTROL_TOKEN
-      - key: PBJ_LAUNCHER_SESSION_SECRET
-        generateValue: true
-      - key: PBJ_RENDER_API_KEY
         sync: false

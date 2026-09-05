@@ -56,24 +56,4 @@ window.pbjSafeRefresh=function(delay){
 };
 </script>
 {% block scripts %}{% endblock %}
-<script>
-(() => {
-  let lastSent = 0;
-  const reportActivity = () => {
-    const now = Date.now();
-    if (document.hidden || now - lastSent < 15000) return;
-    lastSent = now;
-    fetch('/api/demo/activity', {
-      method: 'POST', credentials: 'same-origin', keepalive: true,
-      headers: {'X-PBJ-Activity': 'visible-browser'}
-    }).catch(() => {});
-  };
-  ['pointerdown', 'touchstart', 'keydown'].forEach(name =>
-    window.addEventListener(name, reportActivity, {passive: true})
-  );
-  document.addEventListener('visibilitychange', reportActivity);
-  reportActivity();
-  window.setInterval(reportActivity, 60000);
-})();
-</script>
 </body></html>

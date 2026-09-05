@@ -41,23 +41,6 @@ class HostedSettingsSecurityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "PBJ_HTTPS_ONLY"):
             validate_settings(self.valid_hosted(https_only=False))
 
-    def test_demo_lifecycle_configuration_fails_closed(self):
-        valid = self.valid_hosted(
-            demo_lifecycle_enabled=True,
-            demo_controller_url="https://pbnj-launcher.onrender.com",
-            demo_control_token="c" * 32,
-            demo_idle_seconds=900,
-        )
-        validate_settings(valid)
-        for changes, message in (
-            ({"demo_controller_url": "http://controller.example"}, "PBJ_DEMO_CONTROLLER_URL"),
-            ({"demo_control_token": "short"}, "PBJ_DEMO_CONTROL_TOKEN"),
-            ({"demo_idle_seconds": 599}, "PBJ_DEMO_IDLE_SECONDS"),
-        ):
-            with self.subTest(changes=changes):
-                with self.assertRaisesRegex(RuntimeError, message):
-                    validate_settings(replace(valid, **changes))
-
     def test_configured_codes_use_the_same_utf8_byte_limit_as_login(self):
         validate_settings(self.valid_hosted(
             access_code="é" * (MAX_SECRET_BYTES // 2),
@@ -182,26 +165,6 @@ class PrivateBetaSecurityRouteTests(unittest.TestCase):
         self.assertFalse(exact_secret_match(None, "same"))
         self.assertFalse(exact_secret_match("x" * 257, "x" * 257))
         self.assertFalse(exact_secret_match("same", "x" * 257))
-
-    def test_internal_suspend_confirmation_requires_token_and_current_idle_state(self):
-        demo_settings = replace(
-            self.test_settings,
-            demo_lifecycle_enabled=True,
-            demo_controller_url="https://controller.example",
-            demo_control_token="c" * 32,
-            demo_idle_seconds=900,
-        )
-        with patch.object(main_module, "settings", demo_settings):
-            denied = self.client.post("/internal/demo/can-suspend")
-            self.assertEqual(denied.status_code, 401)
-            headers = {"Authorization": "Bearer " + demo_settings.demo_control_token}
-            with patch.object(main_module.demo_activity, "snapshot", return_value=(901, 0, False)), patch.object(main_module, "has_active_demo_work", return_value=False):
-                allowed = self.client.post("/internal/demo/can-suspend", headers=headers)
-            self.assertEqual(allowed.status_code, 200)
-            self.assertEqual(allowed.json(), {"allowed": True})
-            with patch.object(main_module.demo_activity, "snapshot", return_value=(901, 1, False)), patch.object(main_module, "has_active_demo_work", return_value=False):
-                active = self.client.post("/internal/demo/can-suspend", headers=headers)
-            self.assertEqual(active.json(), {"allowed": False})
 
     def test_access_forms_reject_oversized_bodies_before_secret_comparison(self):
         oversized = b"code=" + (b"x" * main_module.ACCESS_FORM_MAX_BYTES)
